@@ -1,0 +1,198 @@
+"""Workflow endpoints (CRUD + validate)."""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from forge.deps import CurrentUser, current_tenant_id, get_session, require_role
+from forge.schemas.dto import (
+    CanvasSaveIn,
+    ExecutableIn,
+    ExportIn,
+    ImportIn,
+    ImportReport,
+    ValidateOut,
+    WorkflowCreate,
+    WorkflowOut,
+    WorkflowUpdate,
+)
+from forge.services.portability import PortabilityService
+from forge.services.versions import safe_snapshot
+from forge.services.workflows import WorkflowService
+
+router = APIRouter(prefix="/v1/projects/{project_id}/workflows", tags=["workflows"])
+
+
+@router.post("/export")
+async def export_workflows(project_id: str, body: ExportIn, session: AsyncSession = Depends(get_session),
+                           tenant_id: str = Depends(current_tenant_id)):
+    """Serialize the selected workflows (canvas + executable) into a downloadable bundle."""
+    return await PortabilityService.export(session, tenant_id, project_id, "workflow", body.ids)
+
+
+@router.post("/import", response_model=ImportReport)
+async def import_workflows(project_id: str, body: ImportIn, session: AsyncSession = Depends(get_session),
+                           tenant_id: str = Depends(current_tenant_id), user: CurrentUser = Depends(require_role("editor"))):
+    """Create workflows from an uploaded bundle in THIS project (imported as drafts)."""
+    if body.type not in (None, "workflow"):
+        raise HTTPException(422, f"This file contains '{body.type}' exports — import it from the matching screen.")
+    try:
+        return await PortabilityService.import_bundle(session, tenant_id, project_id, body.model_dump(), author=user)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+@router.get("", response_model=list[WorkflowOut])
+async def list_workflows(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    tenant_id: str = Depends(current_tenant_id),
+):
+    return await WorkflowService.list(session, tenant_id, project_id)
+
+
+@router.post("", response_model=WorkflowOut, status_code=201)
+async def create_workflow(
+    project_id: str,
+    body: WorkflowCreate,
+    session: AsyncSession = Depends(get_session),
+    tenant_id: str = Depends(current_tenant_id),
+    user: CurrentUser = Depends(require_role("editor")),
+):
+    wf = await WorkflowService.create(
+        session, tenant_id, project_id,
+        name=body.name, description=body.description,
+        executable=body.executable, canvas=body.canvas,
+    )
+    await safe_snapshot(session, "workflow", wf, author=user)
+    return wf
+
+
+@router.post("/validate", response_model=ValidateOut)
+async def validate_executable(project_id: str, body: ExecutableIn):
+    result = WorkflowService.validate(body.executable)
+    return ValidateOut(valid=result.valid, errors=result.errors, warnings=result.warnings)
+
+
+@router.get("/{workflow_id}", response_model=WorkflowOut)
+async def get_workflow(
+    project_id: str,
+    workflow_id: str,
+    session: AsyncSession = Depends(get_session),
+    tenant_id: str = Depends(current_tenant_id),
+):
+    wf = await WorkflowService.get(session, tenant_id, workflow_id)
+    if wf is None:
+        raise HTTPException(404, "Workflow not found")
+    return wf
+
+
+@router.patch("/{workflow_id}", response_model=WorkflowOut)
+async def update_workflow(
+    project_id: str,
+    workflow_id: str,
+    body: WorkflowUpdate,
+    session: AsyncSession = Depends(get_session),
+    tenant_id: str = Depends(current_tenant_id),
+    user: CurrentUser = Depends(require_role("editor")),
+):
+    wf = await WorkflowService.get(session, tenant_id, workflow_id)
+    if wf is None or wf.project_id != project_id:
+        raise HTTPException(404, "Workflow not found")
+    name = body.name.strip() if body.name is not None else None
+    if body.name is not None and not name:
+        raise HTTPException(422, "Workflow name is required")
+    wf = await WorkflowService.update(session, wf, name=name, description=body.description)
+    await safe_snapshot(session, "workflow", wf, author=user)
+    return wf
+
+
+@router.put("/{workflow_id}/executable", response_model=ValidateOut)
+async def update_executable(
+    project_id: str,
+    workflow_id: str,
+    body: ExecutableIn,
+    session: AsyncSession = Depends(get_session),
+    tenant_id: str = Depends(current_tenant_id),
+    user: CurrentUser = Depends(require_role("editor")),
+):
+    wf = await WorkflowService.get(session, tenant_id, workflow_id)
+    if wf is None:
+        raise HTTPException(404, "Workflow not found")
+    result = await WorkflowService.update_executable(session, wf, body.executable, require_valid=True)
+    if result.valid:
+        await safe_snapshot(session, "workflow", wf, author=user)
+    return ValidateOut(valid=result.valid, errors=result.errors, warnings=result.warnings)
+
+
+@router.post("/{workflow_id}/publish", response_model=WorkflowOut)
+async def publish_workflow(
+    project_id: str,
+    workflow_id: str,
+    session: AsyncSession = Depends(get_session),
+    tenant_id: str = Depends(current_tenant_id),
+    user: CurrentUser = Depends(require_role("editor")),
+):
+    """Validate the stored executable and mark the workflow active (a published version)."""
+    wf = await WorkflowService.get(session, tenant_id, workflow_id)
+    if wf is None:
+        raise HTTPException(404, "Workflow not found")
+    result = WorkflowService.validate(wf.executable or {})
+    if not result.valid:
+        raise HTTPException(422, detail={"errors": result.errors})
+    # Governance: reject publishing a workflow that uses a chat model the project's
+    # allowed_models forbids. Admission (services/budget.enforce_project_budget) validates the
+    # run's model at runtime; this catches EVERY per-node model before the workflow goes live.
+    # No-op unless the project configures an allow-list.
+    from sqlalchemy import select
+
+    from forge.models import Project
+    from forge.services.budget import disallowed_workflow_models
+
+    proj = (await session.execute(
+        select(Project).where(Project.tenant_id == tenant_id, Project.id == project_id)
+    )).scalar_one_or_none()
+    bad = disallowed_workflow_models(proj.config if proj else None, wf.executable or {})
+    if bad:
+        raise HTTPException(422, detail={"errors": [
+            f"model {m!r} is not in this project's allowed_models" for m in bad
+        ]})
+    wf.status = "active"
+    wf.active_version = (wf.active_version or 1) + 1
+    await session.commit()
+    await session.refresh(wf)
+    await WorkflowService._sync_triggers(session, wf)  # (re)register webhook/schedule/etc.
+    await safe_snapshot(session, "workflow", wf, author=user)
+    return wf
+
+
+@router.delete("/{workflow_id}", status_code=204)
+async def delete_workflow(
+    project_id: str,
+    workflow_id: str,
+    session: AsyncSession = Depends(get_session),
+    tenant_id: str = Depends(current_tenant_id),
+    _: CurrentUser = Depends(require_role("editor")),
+):
+    wf = await WorkflowService.get(session, tenant_id, workflow_id)
+    if wf is None:
+        raise HTTPException(404, "Workflow not found")
+    await WorkflowService.delete(session, wf)
+
+
+@router.put("/{workflow_id}/canvas", response_model=ValidateOut)
+async def save_canvas(
+    project_id: str,
+    workflow_id: str,
+    body: CanvasSaveIn,
+    session: AsyncSession = Depends(get_session),
+    tenant_id: str = Depends(current_tenant_id),
+    user: CurrentUser = Depends(require_role("editor")),
+):
+    wf = await WorkflowService.get(session, tenant_id, workflow_id)
+    if wf is None:
+        raise HTTPException(404, "Workflow not found")
+    result = await WorkflowService.save_canvas(session, wf, body.canvas, body.executable)
+    await safe_snapshot(session, "workflow", wf, author=user)
+    return ValidateOut(valid=result.valid, errors=result.errors, warnings=result.warnings)

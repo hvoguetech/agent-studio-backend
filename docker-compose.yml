@@ -1,0 +1,190 @@
+# Forge - production-shaped local stack: Postgres (app DB + durable checkpointer),
+# Redis (shared rate-limit/idempotency + future worker queue), the API, and the web
+# console. Copy .env.example to .env at the repo root and SET REAL SECRETS before using.
+#
+#   docker compose up --build
+#
+# Notes:
+# - FORGE_ENVIRONMENT=production turns on the hardening guard (validate_production); the
+#   app refuses to boot with default secrets / sqlite / non-durable checkpointer.
+# - The scheduler runs only on the single `api` service (scheduler_leader); scale `api`
+#   replicas freely behind a load balancer - limits/idempotency are shared via Redis.
+
+services:
+  postgres:
+    # pgvector/pgvector ships the `vector` extension (plain postgres:16 does not), so the
+    # pgvector store (FORGE_VECTOR_BACKEND=pgvector) can CREATE EXTENSION vector on first use.
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: forge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-forge-dev-pw}
+      POSTGRES_DB: forge
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forge"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Resolve host.docker.internal to the Docker host so tools/knowledge/webhooks can reach a
+    # service running on the host (its localhost != the container's). Docker Desktop (Windows/Mac)
+    # provides this automatically; native Linux needs the host-gateway mapping below. Pair with
+    # FORGE_EGRESS_ALLOW_PRIVATE_HOSTS=["host.docker.internal"] so the SSRF guard permits it.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      # Defaults to production (turns on the hardening guard: refuses default secrets / sqlite /
+      # non-durable checkpointer / non-https public URLs). For a local bring-up on http://localhost
+      # set FORGE_ENVIRONMENT=development in .env - Postgres/pgvector/Redis still run (set below,
+      # env-independent), you just skip the https/trusted-hosts asserts that can't hold on localhost.
+      FORGE_ENVIRONMENT: ${FORGE_ENVIRONMENT:-production}
+      FORGE_DATABASE_URL: postgresql+asyncpg://forge:${POSTGRES_PASSWORD:-forge-dev-pw}@postgres:5432/forge
+      FORGE_CHECKPOINT_BACKEND: postgres
+      # Store embedding vectors in Postgres (reusing FORGE_DATABASE_URL) instead of the embedded
+      # single-writer Chroma index, so api and worker share one vector store across replicas.
+      FORGE_VECTOR_BACKEND: pgvector
+      FORGE_REDIS_URL: redis://redis:6379/0
+      # Run the scheduler/reaper on this single instance (the leader). If you scale `api`
+      # to multiple replicas, keep this on ONE of them only.
+      FORGE_ENABLE_SCHEDULER: "true"
+      FORGE_JWT_SECRET: ${FORGE_JWT_SECRET:?set a strong random secret}
+      FORGE_BOOTSTRAP_ADMIN_EMAIL: ${FORGE_BOOTSTRAP_ADMIN_EMAIL:-admin@forge.local}
+      FORGE_BOOTSTRAP_ADMIN_PASSWORD: ${FORGE_BOOTSTRAP_ADMIN_PASSWORD:?set a real admin password}
+      FORGE_PUBLIC_BASE_URL: ${FORGE_PUBLIC_BASE_URL:-http://localhost:8000}
+      FORGE_PUBLIC_CONSOLE_URL: ${FORGE_PUBLIC_CONSOLE_URL:-http://localhost:3000}
+      FORGE_CORS_ORIGINS: '["http://localhost:3000"]'
+      # Expose the MCP OAuth 2.1 authorization server so MCP clients can authenticate a user by
+      # logging in (in addition to API keys / personal access tokens). Uses FORGE_PUBLIC_BASE_URL
+      # for its discovery + redirect URLs. SECURITY: the consent/login screen is intentionally
+      # minimal and not yet hardened (minimal consent UX, no per-client consent memory, MFA
+      # accounts refused) - see forge/routers/mcp_oauth.py. Override to "false" for a real prod
+      # deploy until it's reviewed.
+      FORGE_MCP_OAUTH_ENABLED: ${FORGE_MCP_OAUTH_ENABLED:-true}
+      # Static bearer that authenticates a trusted server-to-server caller (e.g. an app backend
+      # driving runs on behalf of its users) as a least-privilege service identity. Empty =
+      # disabled. Generate a long random secret and set FORGE_SERVICE_API_TOKEN in .env.
+      FORGE_SERVICE_API_TOKEN: ${FORGE_SERVICE_API_TOKEN:-}
+      # Hosts allowed to resolve to a private/loopback address even with the SSRF guard on
+      # (default-deny, explicit-allow). JSON array. From inside the container "localhost" is the
+      # container itself - use ["host.docker.internal"] to reach a service on the Docker host.
+      FORGE_EGRESS_ALLOW_PRIVATE_HOSTS: ${FORGE_EGRESS_ALLOW_PRIVATE_HOSTS:-}
+      # Suppress IPv6 (AAAA) DNS lookups at the glibc resolver. Docker's embedded resolver
+      # (127.0.0.11) STALLS ~4-5s on the AAAA query for hosts with no IPv6 address (api.openai.com,
+      # ...), and glibc waits for it before falling back to the A record - so the FIRST (cold)
+      # outbound call of every idle connection paid a multi-second penalty (measured: cold OpenAI
+      # call 5.0s -> 0.9s with this set). Must be a real process env var (not set in-code): the
+      # server runs on uvloop, whose C-level resolver bypasses a Python socket.getaddrinfo patch,
+      # and glibc reads RES_OPTIONS once at process start. Needs glibc >= 2.36 (image has 2.41).
+      # Set RES_OPTIONS= (empty) in .env to re-enable IPv6 for an IPv6-only egress network.
+      RES_OPTIONS: ${RES_OPTIONS:-no-aaaa}
+      # Provider keys (set the ones you use):
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      # Persist the Fernet master.key across image rebuilds, and SHARE it with the worker. This is
+      # container-filesystem state (/app/.data), NOT in the pgdata volume, so without this it is
+      # wiped on every `up --build` - regenerating master.key would leave every secret already
+      # stored in Postgres undecryptable. (Vectors now live in Postgres via pgvector, not here.)
+      - forge-data:/app/.data
+    ports:
+      - "8000:8000"
+
+  # Offloaded run execution (webhook/schedule triggers). Scale freely: `--scale worker=N`.
+  worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: ["arq", "forge.worker.WorkerSettings"]
+    # The worker runs arq, not the HTTP server, so the api image's baked HEALTHCHECK
+    # (curl :8000/readyz) can never pass and would leave the container perpetually
+    # "unhealthy" (and hang anything gating on `worker: service_healthy`, incl. scaled
+    # replicas). Disable it: the container's run state already reflects arq liveness.
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # Start only after api has run `alembic upgrade head` and is serving, so a run_job
+      # never hits app tables before they exist.
+      api:
+        condition: service_healthy
+    # Same host-gateway mapping as api, so worker-executed tool runs (webhook/schedule triggers)
+    # can also reach a service on the Docker host via host.docker.internal.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      # Mirror the api's environment (see the note there); defaults to production.
+      FORGE_ENVIRONMENT: ${FORGE_ENVIRONMENT:-production}
+      FORGE_DATABASE_URL: postgresql+asyncpg://forge:${POSTGRES_PASSWORD:-forge-dev-pw}@postgres:5432/forge
+      FORGE_CHECKPOINT_BACKEND: postgres
+      # Same vector store as the api (Postgres/pgvector), so worker-executed ingests/queries hit
+      # the shared vectors rather than a private Chroma index.
+      FORGE_VECTOR_BACKEND: pgvector
+      FORGE_REDIS_URL: redis://redis:6379/0
+      FORGE_JWT_SECRET: ${FORGE_JWT_SECRET:?set a strong random secret}
+      # Not used by the worker (only the api seeds the admin), but the shared production guard
+      # (validate_production) checks it, so provide the same value the api uses.
+      FORGE_BOOTSTRAP_ADMIN_PASSWORD: ${FORGE_BOOTSTRAP_ADMIN_PASSWORD:?set a real admin password}
+      # The worker does not run the scheduler (the api leader does).
+      FORGE_ENABLE_SCHEDULER: "false"
+      # Pin leader off too so the single-scheduler-leader invariant is expressed in config: a
+      # future change that runs the scheduler/reaper on workers can't double-fire across replicas.
+      FORGE_SCHEDULER_LEADER: "false"
+      # Same egress allowances as the api, so worker-executed tool runs (webhook/schedule
+      # triggers) can reach the same internal targets (default-deny, explicit-allow).
+      FORGE_EGRESS_ALLOW_PRIVATE_HOSTS: ${FORGE_EGRESS_ALLOW_PRIVATE_HOSTS:-}
+      # Suppress the slow IPv6/AAAA DNS lookup on cold outbound connections - same fix and rationale
+      # as the api service (see the comment there); the worker makes the same LLM/tool calls.
+      RES_OPTIONS: ${RES_OPTIONS:-no-aaaa}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      # Same shared volume as api: the worker decrypts run secrets with the SAME master.key.
+      # A separate key here would fail to decrypt anything the api encrypted. (Vectors are shared
+      # via Postgres/pgvector now, not this volume.)
+      - forge-data:/app/.data
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Baked into the standalone rewrite at BUILD time (a standalone build freezes the rewrite
+        # destination; runtime env can't change it). The browser stays same-origin, so this
+        # container-internal host never reaches the client (see apps/web/next.config.mjs).
+        FORGE_API_URL: http://api:8000
+    depends_on:
+      # Gate on api readiness (its /readyz HEALTHCHECK) so the first browser requests aren't
+      # proxied before api has migrated and bound :8000.
+      api:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:
+  # Fernet master.key, shared by api and worker and persisted across rebuilds (container-
+  # filesystem state under /app/.data, not part of the Postgres pgdata volume). Vectors live
+  # in Postgres (pgvector) now, so this volume no longer holds the Chroma index.
+  forge-data:

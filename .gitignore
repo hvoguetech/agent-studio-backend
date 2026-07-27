@@ -1,0 +1,44 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- Node / Next ---
+node_modules/
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+.turbo/
+
+# --- Forge runtime data & secrets ---
+apps/api/.data/
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.local
+master.key
+
+# --- Editors / OS / tooling ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Claude Code / agent tooling (local dev only; not part of the product) ---
+# Keep .claude/launch.json (the preview config) tracked; ignore everything else.
+.agents/
+.claude/*
+!.claude/launch.json
+
+# --- WebFetch / temp artifacts ---
+*.bin
+
+# --- Local architecture notes (not part of the product) ---
+/PENDING_FEATURES.md

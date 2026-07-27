@@ -1,0 +1,295 @@
+"""First-party builtin tools: current_time, calculator, web_fetch, web_search,
+knowledge_search (agent-callable RAG over the project knowledge base)."""
+
+from __future__ import annotations
+
+import ast
+import operator as op
+from datetime import UTC, datetime
+
+from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, Field
+
+# Built-in tools every project gets by default (platform capabilities). They are provisioned
+# automatically (on project create + whenever the tools list is read), are protected from
+# deletion, and are never carried in import/export bundles - so importing a project neither
+# duplicates nor loses them. `builtin` is both the tool name the model calls and the config key.
+BUILTIN_DEFAULTS: list[dict[str, str]] = [
+    {"builtin": "current_time", "description": "Return the current date and time."},
+    {"builtin": "calculator", "description": "Evaluate an arithmetic expression safely."},
+    {"builtin": "web_fetch", "description": "Fetch the contents of a URL."},
+    {"builtin": "web_search", "description": "Search the web (requires a configured search-provider key)."},
+    {"builtin": "knowledge_search", "description": "Search this project's knowledge base (docs + Q&A)."},
+    {"builtin": "remember", "description": "Store a durable memory for later recall."},
+    {"builtin": "recall", "description": "Recall stored memories relevant to a query."},
+]
+
+# Safe arithmetic for the calculator (no names, no calls).
+_OPS = {
+    ast.Add: op.add, ast.Sub: op.sub, ast.Mult: op.mul, ast.Div: op.truediv,
+    ast.Pow: op.pow, ast.Mod: op.mod, ast.USub: op.neg, ast.FloorDiv: op.floordiv,
+}
+
+# Bound exponentiation so an expression like `9**9**9` can't build a multi-gigabyte int and
+# lock the interpreter (DoS). Ordinary calculator use stays well within these limits.
+_MAX_POW_EXPONENT = 100
+_MAX_POW_BASE = 1_000_000
+
+
+def _calc(node: ast.AST) -> float:
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+        return node.value
+    if isinstance(node, ast.BinOp) and type(node.op) in _OPS:
+        left, right = _calc(node.left), _calc(node.right)
+        if isinstance(node.op, ast.Pow) and (abs(right) > _MAX_POW_EXPONENT or abs(left) > _MAX_POW_BASE):
+            raise ValueError("exponent too large")
+        return _OPS[type(node.op)](left, right)
+    if isinstance(node, ast.UnaryOp) and type(node.op) in _OPS:
+        return _OPS[type(node.op)](_calc(node.operand))
+    raise ValueError("Unsupported expression")
+
+
+class _CalcArgs(BaseModel):
+    expression: str = Field(description="Arithmetic expression, e.g. '2 * (3 + 4)'")
+
+
+class _TimeArgs(BaseModel):
+    tz: str = Field(default="UTC", description="Timezone name (only UTC supported offline)")
+
+
+class _FetchArgs(BaseModel):
+    url: str = Field(description="URL to fetch")
+
+
+def _memory_scope(ctx) -> str:
+    """Per-end-user long-term-memory partition. Without this every end user of a deployed
+    multi-user workflow shares one project-global memory pool, so user A's remembered
+    facts (preferences, account details) are recalled for user B - a privacy leak. Falls
+    back to 'default' for anonymous / internal (operator) runs, preserving prior behavior
+    for single-user setups."""
+    eu = getattr(ctx, "end_user", None) or {}
+    uid = str(eu.get("id") or "").strip()
+    return f"user:{uid}" if uid else "default"
+
+
+def build_builtin_tool(cfg: dict, ctx):
+    builtin = cfg["builtin"]
+    name = cfg.get("name", builtin)
+    desc = cfg.get("description", "")
+
+    if builtin == "current_time":
+        def now(tz: str = "UTC") -> str:
+            return datetime.now(UTC).isoformat()
+        return StructuredTool.from_function(func=now, name=name, description=desc or "Get the current UTC time.", args_schema=_TimeArgs)
+
+    if builtin == "calculator":
+        def calc(expression: str) -> str:
+            return str(_calc(ast.parse(expression, mode="eval").body))
+        return StructuredTool.from_function(func=calc, name=name, description=desc or "Evaluate an arithmetic expression.", args_schema=_CalcArgs)
+
+    if builtin == "web_fetch":
+        async def fetch(url: str) -> str:
+            from forge.util.http import shared_async_client
+            from forge.util.ssrf import guarded_get
+            r = await guarded_get(
+                shared_async_client(), url, policy=getattr(ctx, "egress_policy", None),
+                timeout=20, follow_redirects=True,
+            )
+            return r.text[:8000]
+        return StructuredTool.from_function(coroutine=fetch, name=name, description=desc or "Fetch a URL and return its text.", args_schema=_FetchArgs)
+
+    if builtin == "web_search":  # requires a provider key (Tavily/Exa) - wired in Phase 7
+        def search(query: str) -> str:
+            return "web_search is not configured. Add a Tavily/Exa key to enable it."
+        class _Q(BaseModel):
+            query: str = Field(description="Search query")
+        return StructuredTool.from_function(func=search, name=name, description=desc or "Search the web.", args_schema=_Q)
+
+    if builtin == "knowledge_search":
+        # Retrieval as a TOOL (vs the fixed `retrieval` node): the agent can search per
+        # sub-question, multiple times, with its own phrasing - which is what makes a
+        # single agent handle multi-part questions instead of a classifier→router
+        # picking one path.
+        class _KSearchArgs(BaseModel):
+            query: str = Field(description="What to look up in the project knowledge base. Use one focused query per sub-question.")
+            folder: str = Field(default="", description="Optional knowledge folder to search within (empty = all folders)")
+            top_k: int = Field(default=4, description="How many document chunks to return")
+
+        async def ksearch(query: str, folder: str = "", top_k: int = 4) -> str:
+            from forge.db.base import SessionLocal
+            from forge.knowledge.embeddings import DEFAULT_MIN_SCORE
+            from forge.knowledge.store import citation_for
+            from forge.services.knowledge import KnowledgeService
+
+            async with SessionLocal() as s:
+                embedder = await KnowledgeService.embedder_for_project(s, ctx.tenant_id, ctx.project_id)
+                vec = await embedder.aembed_query(query)
+                try:
+                    hits = await KnowledgeService.search(
+                        s, ctx.tenant_id, ctx.project_id, query, top_k=top_k,
+                        folders=[folder] if folder else None, embedder=embedder, embedding=vec,
+                    )
+                except Exception:  # noqa: BLE001 - store empty / not ready
+                    hits = []
+                # Vector-only path here, so Hit.score IS the cosine; floor at the calibrated
+                # default so an off-topic query returns nothing (agent then says it doesn't know).
+                hits = [h for h in hits if h.score >= DEFAULT_MIN_SCORE]
+                try:
+                    qa = await KnowledgeService.top_qa(
+                        s, ctx.tenant_id, ctx.project_id, query, top_k=3, threshold=0.3,
+                        embedder=embedder, embedding=vec,
+                    )
+                except Exception:  # noqa: BLE001
+                    qa = []
+            blocks = [f"[Doc {i + 1}{f' · {c}' if (c := citation_for(h.metadata)) else ''} · score {h.score:.2f}] {h.text}"
+                      for i, h in enumerate(hits)]
+            blocks += [f"[FAQ] Q: {q['question']}\nA: {q['answer']}" for q in qa]
+            return "\n\n".join(blocks) if blocks else "No relevant knowledge found for this query."
+
+        return StructuredTool.from_function(
+            coroutine=ksearch, name=name,
+            description=desc or "Search the project knowledge base (documents + FAQs). Call once per distinct sub-question.",
+            args_schema=_KSearchArgs,
+        )
+
+    if builtin == "remember":
+        class _RememberArgs(BaseModel):
+            text: str = Field(description="A concise fact worth remembering for future conversations (e.g. a preference, a decision, an account detail).")
+
+        async def remember_tool(text: str) -> str:
+            from forge.db.base import SessionLocal
+            from forge.services.memory import MemoryService
+
+            async with SessionLocal() as s:
+                await MemoryService.remember(s, ctx.tenant_id, ctx.project_id, text, scope=_memory_scope(ctx))
+            return "Saved to long-term memory."
+
+        return StructuredTool.from_function(
+            coroutine=remember_tool, name=name,
+            description=desc or "Save a fact to long-term memory so it persists across conversations.",
+            args_schema=_RememberArgs,
+        )
+
+    if builtin == "recall":
+        class _RecallArgs(BaseModel):
+            query: str = Field(description="What to look up in long-term memory.")
+
+        async def recall_tool(query: str) -> str:
+            from forge.db.base import SessionLocal
+            from forge.services.memory import MemoryService
+
+            async with SessionLocal() as s:
+                mems = await MemoryService.recall(s, ctx.tenant_id, ctx.project_id, query, scope=_memory_scope(ctx), top_k=5)
+            return "\n".join(f"- {m}" for m in mems) if mems else "No relevant memories found."
+
+        return StructuredTool.from_function(
+            coroutine=recall_tool, name=name,
+            description=desc or "Recall previously remembered facts from long-term memory.",
+            args_schema=_RecallArgs,
+        )
+
+    raise ValueError(f"Unknown builtin tool: {builtin!r}")
+
+
+class _KbQuery(BaseModel):
+    query: str = Field(description="A focused search query - use one per distinct sub-question, in your own words (not the user's whole message).")
+
+
+def build_knowledge_capability_tools(knowledge: dict | None, ctx) -> list:
+    """Built-in knowledge access attached straight to an agent node via its `knowledge`
+    config - no separate Tool row needed. Two independent, separately-toggleable tools:
+
+    - RAG  (`search_knowledge_base`): vector search over knowledge DOCUMENTS, scoped to the
+      configured folders (empty = all).
+    - Q&A  (`lookup_faq`): semantic match over curated FAQ / Q&A pairs, scoped to the
+      configured kinds (empty = all).
+
+    Unlike the fixed `retrieval` node (one search per run, before the agent), these are
+    agent-driven: the agent decides when to search and rewrites the query per
+    sub-question - which is what lets ONE agent answer multi-part questions.
+    """
+    tools: list = []
+    if not knowledge:
+        return tools
+    rag = knowledge.get("rag") or {}
+    qa = knowledge.get("qa") or {}
+
+    if rag.get("enabled"):
+        from forge.knowledge.embeddings import DEFAULT_MIN_SCORE, DEFAULT_RERANK_MIN_SCORE
+        from forge.knowledge.store import citation_for
+
+        folders = rag.get("folders") or None
+        top_k = int(rag.get("top_k") or 4)
+        min_score = rag.get("min_score", DEFAULT_MIN_SCORE)
+        rerank_min_score = rag.get("rerank_min_score", DEFAULT_RERANK_MIN_SCORE)
+        hybrid = bool(rag.get("hybrid", False))
+        rerank = bool(rag.get("rerank", False))
+        rerank_top_n = rag.get("rerank_top_n")
+        mmr = bool(rag.get("mmr", False))
+        mmr_lambda = rag.get("mmr_lambda", 0.5)
+        scope = f" (folders: {', '.join(folders)})" if folders else ""
+
+        def _floor_ok(h) -> bool:
+            # Threshold on the correct scale: rerank -> cross-encoder sigmoid (rerank_min_score);
+            # hybrid -> real cosine in vector_score (Hit.score there is the fused rank); else cosine.
+            if rerank:
+                return rerank_min_score is None or h.score >= rerank_min_score
+            cos = h.vector_score if hybrid else h.score
+            return min_score is None or cos is None or cos >= min_score
+
+        async def search_knowledge_base(query: str) -> str:
+            from forge.db.base import SessionLocal
+            from forge.services.knowledge import KnowledgeService
+
+            async with SessionLocal() as s:
+                try:
+                    embedder = await KnowledgeService.embedder_for_project(s, ctx.tenant_id, ctx.project_id)
+                    vec = await embedder.aembed_query(query)
+                    hits = await KnowledgeService.search(
+                        s, ctx.tenant_id, ctx.project_id, query, top_k=top_k,
+                        folders=folders, embedder=embedder, embedding=vec, hybrid=hybrid,
+                        rerank=rerank, rerank_top_n=rerank_top_n, mmr=mmr, mmr_lambda=mmr_lambda,
+                    )
+                except Exception:  # noqa: BLE001 - store empty / not ready
+                    hits = []
+                hits = [h for h in hits if _floor_ok(h)]
+            blocks = [f"[Doc {i + 1}{f' · {c}' if (c := citation_for(h.metadata)) else ''} · score {h.score:.2f}] {h.text}"
+                      for i, h in enumerate(hits)]
+            return "\n\n".join(blocks) if blocks else "No relevant documents found in the knowledge base for this query."
+
+        tools.append(StructuredTool.from_function(
+            coroutine=search_knowledge_base, name="search_knowledge_base",
+            description=f"Search the project knowledge-base DOCUMENTS{scope} for grounding facts. Call once per distinct sub-question with a focused query.",
+            args_schema=_KbQuery,
+        ))
+
+    if qa.get("enabled"):
+        kinds = qa.get("kinds") or None
+        threshold = float(qa.get("threshold", 0.3))
+        top_k_qa = int(qa.get("top_k") or 3)
+        scope = f" (kinds: {', '.join(kinds)})" if kinds else ""
+
+        async def lookup_faq(query: str) -> str:
+            from forge.db.base import SessionLocal
+            from forge.services.knowledge import KnowledgeService
+
+            async with SessionLocal() as s:
+                try:
+                    embedder = await KnowledgeService.embedder_for_project(s, ctx.tenant_id, ctx.project_id)
+                    vec = await embedder.aembed_query(query)
+                    qa_hits = await KnowledgeService.top_qa(
+                        s, ctx.tenant_id, ctx.project_id, query, top_k=top_k_qa,
+                        threshold=threshold, kinds=kinds, embedder=embedder, embedding=vec,
+                    )
+                except Exception:  # noqa: BLE001
+                    qa_hits = []
+            blocks = [f"[FAQ] Q: {q['question']}\nA: {q['answer']}" for q in qa_hits]
+            return "\n\n".join(blocks) if blocks else "No matching FAQ / Q&A entry found for this query."
+
+        tools.append(StructuredTool.from_function(
+            coroutine=lookup_faq, name="lookup_faq",
+            description=f"Look up curated FAQ / Q&A answers{scope}. Prefer these exact, approved answers when one matches the user's question.",
+            args_schema=_KbQuery,
+        ))
+
+    return tools

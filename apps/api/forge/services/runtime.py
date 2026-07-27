@@ -1,0 +1,207 @@
+"""Assemble a CompileContext for a run: resolver + materialized project tools.
+
+Tools reference `ctx.auth_resolver` by closure, so we create the context first
+(with the resolver) and then materialize tools into it. Unimplemented/broken tool
+kinds are skipped so a run still compiles.
+"""
+
+from __future__ import annotations
+
+import logging
+
+from sqlalchemy import select
+
+from forge.auth_providers.resolver import AuthResolver
+from forge.config import settings
+from forge.engine.context import CompileContext
+from forge.engine.models import default_model_for_credentials
+from forge.models import Agent, Project, Tool, Workflow
+from forge.secrets.store import SecretStore
+from forge.tools.materialize import materialize_tool
+from forge.util.ssrf import EgressPolicy
+
+log = logging.getLogger("forge.runtime")
+
+
+def make_runtime_ctx(tenant_id: str, project_id: str, *, default_model: str | None = None) -> CompileContext:
+    return CompileContext(
+        tenant_id=tenant_id,
+        project_id=project_id,
+        auth_resolver=AuthResolver(SecretStore()),
+        default_model=default_model or settings.default_model,
+    )
+
+
+def _tool_cfg(t: Tool) -> dict:
+    cfg = dict(t.config or {})
+    cfg.setdefault("name", t.name)
+    cfg.setdefault("kind", t.kind)
+    if t.auth_provider_id and not cfg.get("auth_provider_id"):
+        cfg["auth_provider_id"] = t.auth_provider_id
+    return cfg
+
+
+async def build_compile_context(
+    session, *, tenant_id: str, project_id: str, checkpointer=None, store=None,
+    end_user: dict | None = None, run_context: dict | None = None,
+) -> CompileContext:
+    # Scope the project load by tenant too (audit H4): callers pass the CALLER's tenant_id, so a
+    # cross-tenant project_id resolves to None here (empty config) instead of loading another
+    # tenant's project. Belt-and-suspenders behind the router-level ownership check.
+    project = (
+        await session.execute(
+            select(Project).where(Project.id == project_id, Project.tenant_id == tenant_id)
+        )
+    ).scalar_one_or_none()
+    pconfig = (project.config or {}) if project else {}
+
+    secret_store = SecretStore()
+
+    # Resolve provider API keys (provider -> secret ref) to plaintext for this run only.
+    resolved_keys: dict[str, str] = {}
+    for provider, ref in (pconfig.get("provider_credentials") or {}).items():
+        try:
+            val = await secret_store.read_ref(tenant_id=tenant_id, project_id=project_id, ref=ref)
+            resolved_keys[provider] = val if isinstance(val, str) else (val.get("key") or val.get("value") or str(val)) if isinstance(val, dict) else str(val)
+        except Exception as e:  # noqa: BLE001 - missing/invalid key just falls back to env
+            log.warning("Provider key %s unresolved: %s", provider, e)
+
+    # Pick the run's default model. An explicit (non-fake) project default wins; else,
+    # if the project has a provider key, default to that provider's model instead of
+    # silently degrading agent nodes with no model to the offline `fake:` model.
+    explicit = pconfig.get("default_model")
+    if explicit and not str(explicit).startswith("fake"):
+        default_model = explicit
+    else:
+        default_model = default_model_for_credentials(resolved_keys) or explicit or settings.default_model
+
+    ctx = CompileContext(
+        tenant_id=tenant_id,
+        project_id=project_id,
+        checkpointer=checkpointer,
+        store=store,
+        auth_resolver=AuthResolver(secret_store),
+        default_model=default_model,
+        project_default_mw=pconfig.get("default_middleware", []) or [],
+    )
+    ctx.provider_credentials = resolved_keys
+    ctx.egress_policy = EgressPolicy.from_settings(pconfig.get("egress"))
+    ctx.end_user = end_user or None
+    # Ephemeral per-run injected context (never persisted, never prompted); consumed by tools
+    # for {{ctx.<key>}} templating and by the auth resolver. See CompileContext.run_context.
+    ctx.run_context = run_context or {}
+
+    rows = (
+        await session.execute(
+            select(Tool).where(
+                Tool.tenant_id == tenant_id, Tool.project_id == project_id, Tool.enabled.is_(True)
+            )
+        )
+    ).scalars()
+    registry: dict[str, object] = {}
+    specs: dict[str, dict] = {}
+    # LLM name -> human-readable label for streaming/chat activity (keeps the underscore
+    # identifier for the model; see CompileContext.tool_display_names). Blank falls back to
+    # the identifier so existing tools keep their current label.
+    display_names: dict[str, str] = {}
+    for t in rows:
+        cfg = _tool_cfg(t)
+        display_names[t.name] = (cfg.get("display_name") or "").strip() or t.name
+        try:
+            tool = materialize_tool(cfg, ctx)
+            registry[t.id] = tool
+            specs[t.id] = {"kind": t.kind, "config": cfg, "tool": tool}
+        except Exception as e:  # noqa: BLE001 - skip unimplemented/broken tools
+            from forge.util.metrics import incr
+
+            incr("tool.materialize_failed", detail=f"{t.name} ({t.kind}): {e}")
+            log.warning("Skipping tool %s (%s): %s", t.name, t.kind, e)
+    ctx.tool_registry = registry
+    ctx.tool_specs = specs
+
+    # Tool-set membership (set_id -> [tool_id]) so an agent node can reference a whole set via
+    # config.toolsets and resolve it to member tools at compile time. One query per run.
+    from forge.services.tool_sets import ToolSetService
+
+    ctx.toolset_members = await ToolSetService.members_map(session, tenant_id, project_id)
+
+    # User-defined UI components → widget-tools (Feature 2). Each becomes a tool the agent
+    # can call to render a saved html/css template client-side (the tool args are the props).
+    from forge.models import Component
+    from forge.tools.components import build_component_tool
+
+    try:
+        comp_rows = list((
+            await session.execute(
+                select(Component).where(
+                    Component.tenant_id == tenant_id,
+                    Component.project_id == project_id,
+                    Component.enabled.is_(True),
+                )
+            )
+        ).scalars())
+    except Exception as e:  # noqa: BLE001 - a components-table error must not abort the whole run
+        log.warning("Skipping components (load failed): %s", e)
+        comp_rows = []
+    comp_registry: dict[str, object] = {}
+    for c in comp_rows:
+        # A component is exposed to the model as a widget-tool named after `c.name`; relabel it
+        # in the stream with its title (falling back to the name) like any other tool.
+        display_names[c.name] = (c.title or "").strip() or c.name
+        try:
+            comp_registry[c.id] = build_component_tool(
+                {
+                    "id": c.id, "name": c.name, "description": c.description,
+                    "props_schema": c.props_schema, "actions": c.actions, "version": c.version,
+                },
+                ctx,
+            )
+        except Exception as e:  # noqa: BLE001 - skip a broken component; don't break the run
+            log.warning("Skipping component %s: %s", c.name, e)
+    ctx.component_registry = comp_registry
+    ctx.tool_display_names = display_names
+
+    # Pre-load enabled MCP servers' tools (one connect per server) so agent nodes can
+    # attach them - the agent factory is sync, but MCP discovery is async.
+    from forge.models import McpClient
+    from forge.tools.mcp import server_tools
+
+    mcp_by_client: dict[str, list] = {}
+    mcp_rows = (
+        await session.execute(
+            select(McpClient).where(
+                McpClient.tenant_id == tenant_id,
+                McpClient.project_id == project_id,
+                McpClient.enabled.is_(True),
+            )
+        )
+    ).scalars()
+    for m in mcp_rows:
+        try:
+            mcp_by_client[m.id] = await server_tools(m, tenant_id, project_id)
+        except Exception as e:  # noqa: BLE001 - an unreachable server must not break the run
+            log.warning("MCP server %s unavailable, skipping its tools: %s", m.name, e)
+    ctx.mcp_tools_by_client = mcp_by_client
+
+    # Saved agent presets, so an agent node with `agent_ref` mirrors the live preset.
+    agent_rows = (
+        await session.execute(
+            select(Agent).where(Agent.tenant_id == tenant_id, Agent.project_id == project_id)
+        )
+    ).scalars()
+    ctx.agent_presets = {a.id: (a.config or {}) for a in agent_rows}
+
+    # Workflow executables (keyed by id AND name) so `subworkflow` nodes can reference
+    # another workflow as a reusable component.
+    wf_rows = (
+        await session.execute(
+            select(Workflow).where(Workflow.tenant_id == tenant_id, Workflow.project_id == project_id)
+        )
+    ).scalars()
+    wf_map: dict[str, dict] = {}
+    for w in wf_rows:
+        if w.executable:
+            wf_map[w.id] = w.executable
+            wf_map.setdefault(w.name, w.executable)
+    ctx.workflows = wf_map
+    return ctx

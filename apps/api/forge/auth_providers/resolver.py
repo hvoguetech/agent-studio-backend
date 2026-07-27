@@ -1,0 +1,316 @@
+"""AuthResolver - resolve an Auth Provider to headers/cookies/params for a tool call.
+
+Caches per (provider, per-user-context-hash) with TTL (in-process here; Redis in
+prod). Invalidates on 401/403 (handled by the calling tool). Per-user secrets the
+widget injects arrive in `context` and are never stored (Doc 2 §11).
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import time
+from dataclasses import dataclass, field
+from typing import Any
+
+import httpx
+from sqlalchemy import select
+
+from forge.auth_providers.extract import extract_value
+from forge.auth_providers.templates import render_value
+from forge.config import settings
+from forge.db.base import SessionLocal
+from forge.models import AuthProvider
+from forge.secrets.store import SecretStore
+from forge.util.http import shared_async_client
+from forge.util.locks import KeyedLocks
+from forge.util.ssrf import guarded_request
+
+# Serialize a provider's (per-user) OAuth refresh so concurrent resolves don't each POST the
+# one-time refresh_token and clobber the rotated bundle - the loser would then hold a token the
+# IdP has already invalidated (finding i). In-process (single worker); a distributed lock is
+# needed for multi-worker, same as the rest of util.locks.
+_oauth_refresh_locks = KeyedLocks()
+
+
+@dataclass
+class ResolvedAuth:
+    headers: dict[str, str] = field(default_factory=dict)
+    cookies: dict[str, str] = field(default_factory=dict)
+    params: dict[str, str] = field(default_factory=dict)
+    expires_at: float | None = None  # monotonic seconds
+
+    @property
+    def expired(self) -> bool:
+        return self.expires_at is not None and time.monotonic() >= self.expires_at
+
+
+class AuthResolver:
+    def __init__(self, secrets: SecretStore | None = None, session_factory=SessionLocal) -> None:
+        self.secrets = secrets or SecretStore(session_factory)
+        self._sf = session_factory
+        self._cache: dict[str, ResolvedAuth] = {}
+
+    async def _load(self, tenant_id: str, provider_id: str) -> AuthProvider | None:
+        async with self._sf() as session:
+            return (
+                await session.execute(
+                    select(AuthProvider).where(
+                        AuthProvider.tenant_id == tenant_id, AuthProvider.id == provider_id
+                    )
+                )
+            ).scalar_one_or_none()
+
+    @staticmethod
+    def _key(provider_id: str, context: dict, per_user_keys: list[str]) -> str:
+        dims = "|".join(f"{k}={context.get(k)}" for k in sorted(per_user_keys or []))
+        return provider_id + "::" + hashlib.sha256(dims.encode()).hexdigest()[:16]
+
+    async def invalidate(self, key: str) -> None:
+        self._cache.pop(key, None)
+
+    async def resolve(
+        self,
+        *,
+        tenant_id: str,
+        project_id: str,
+        provider_id: str,
+        context: dict | None = None,
+        force: bool = False,
+        client: httpx.AsyncClient | None = None,
+        provider: AuthProvider | None = None,
+    ) -> ResolvedAuth:
+        context = context or {}
+        provider = provider or await self._load(tenant_id, provider_id)
+        if provider is None:
+            raise KeyError(f"Auth provider {provider_id!r} not found")
+        cfg = provider.config or {}
+        per_user = cfg.get("per_user_context_keys", [])
+        # A per-user provider may also accept an INLINE token from the run context (token_ctx_key,
+        # for server-to-server /run forwarding). That value must vary the cache key too, or a cached
+        # ResolvedAuth for one caller's inline token could be served to another sharing the same
+        # end_user dims. The stored-connection path is unaffected (the key is absent from context).
+        effective_ctx_key = cfg.get("token_ctx_key") or settings.default_token_ctx_key
+        cache_dims = [*per_user, effective_ctx_key] if effective_ctx_key else per_user
+        key = self._key(provider_id, context, cache_dims)
+        if not force and (cached := self._cache.get(key)) and not cached.expired:
+            return cached
+
+        async def read(ref: str | None) -> Any:
+            if not ref:
+                return None
+            return await self.secrets.read_ref(tenant_id=tenant_id, project_id=project_id, ref=ref)
+
+        # `credentials_ref` is the primary secret for csrf_session/custom_script, but only a
+        # *fallback* for bearer/api_key (and unused for basic/oauth2). A stale or missing
+        # fallback must not abort a provider whose own ref (token_ref/value_ref/…) resolves -
+        # the per-kind branches below still raise clearly if their primary ref is absent.
+        try:
+            creds = await read(provider.credentials_ref or cfg.get("credentials_ref"))
+        except Exception:  # noqa: BLE001 - absent fallback secret is tolerated
+            creds = None
+        kind = provider.kind
+        resolved = ResolvedAuth()
+        default_ttl = cfg.get("cache_ttl_seconds", 1800)
+
+        if kind == "bearer":
+            token = await self._value_for(provider, cfg, read, context, shared_ref=cfg.get("token_ref"), fallback=creds)
+            resolved.headers[cfg.get("header_name", "Authorization")] = (
+                cfg.get("prefix", "Bearer ") + str(token)
+            )
+            resolved.expires_at = None if default_ttl == 0 else time.monotonic() + default_ttl
+        elif kind == "api_key":
+            value = await self._value_for(provider, cfg, read, context, shared_ref=cfg.get("value_ref"), fallback=creds)
+            where, name = cfg.get("in", "header"), cfg["name"]
+            (resolved.headers if where == "header" else resolved.params)[name] = str(value)
+            resolved.expires_at = None
+        elif kind == "basic":
+            user = await read(cfg.get("username_ref"))
+            pw = await read(cfg.get("password_ref"))
+            token = base64.b64encode(f"{user}:{pw}".encode()).decode()
+            resolved.headers["Authorization"] = "Basic " + token
+            resolved.expires_at = None
+        elif kind == "oauth2_client_credentials":
+            resolved = await self._oauth2(cfg, read, client)
+        elif kind == "oauth2_authorization_code":
+            resolved = await self._oauth2_auth_code(provider, cfg, read, tenant_id, project_id, client, context)
+        elif kind == "csrf_session":
+            resolved = await self._csrf_session(cfg, {"cred": creds, "ctx": context}, client, default_ttl)
+        elif kind == "custom_script":  # pragma: no cover - advanced/audited
+            raise NotImplementedError("custom_script auth requires the advanced-scripts feature flag.")
+        else:
+            raise ValueError(f"Unknown auth kind {kind!r}")
+
+        # Extra fixed headers stamped on every call (in addition to the primary auth header) - e.g. a
+        # constant client id + a service token defined ONCE on the provider instead of hardcoded per
+        # tool. Each value is a literal or a secret:// ref (resolved from the secret store), so a
+        # secret never has to live in plaintext in a tool's header config.
+        for hname, hval in (cfg.get("extra_headers") or {}).items():
+            resolved_val = await read(hval) if isinstance(hval, str) and hval.startswith("secret://") else hval
+            if resolved_val is not None:
+                resolved.headers[hname] = str(resolved_val)
+
+        self._cache[key] = resolved
+        return resolved
+
+    async def _value_for(self, provider, cfg: dict, read, context: dict, *, shared_ref, fallback):
+        """The token/value for a bearer/api_key provider.
+
+        When the provider is PER-USER (config.per_user_context_keys set, e.g. ["end_user_id"]) the
+        value is the acting user's OWN connected credential - read from the per-user bundle each user
+        deposits self-service (set_user_connection), keyed by the same per_user dims. So every end
+        user supplies their own token and a tool acts as them downstream, with NO shared secret and
+        NO passthrough of the inbound (MCP/session) token. A user who hasn't connected yet resolves
+        to a clear "not connected" error rather than a silent miss.
+
+        Otherwise it's the shared secret ref (or the credentials_ref fallback) - the prior behavior,
+        preserved exactly for non-per-user providers."""
+        per_user = cfg.get("per_user_context_keys")
+        if not per_user:
+            return await read(shared_ref) or fallback
+        # Inline per-request token (server-to-server /run forwarding via X-Forge-Context) takes
+        # precedence over the stored connection, so ONE per-user provider serves both delivery paths:
+        # a chat backend forwards the user's token inline, OR the user connected it once (MCP/console).
+        # The provider's own token_ctx_key wins; else fall back to the deployment-wide default
+        # (settings.default_token_ctx_key) so an integration that always forwards the same key works
+        # for every per-user provider WITHOUT per-provider config (survives project re-creation).
+        ctx_key = cfg.get("token_ctx_key") or settings.default_token_ctx_key
+        if ctx_key and (context or {}).get(ctx_key):
+            return context[ctx_key]
+        name = self.bundle_secret_name(provider.id, context, per_user)
+        try:
+            bundle = await read(f"secret://proj/{name}")
+        except Exception:  # noqa: BLE001 - "not connected" surfaces as a missing secret
+            bundle = None
+        if not isinstance(bundle, dict) or not bundle.get("access_token"):
+            raise KeyError(
+                f"Auth provider {provider.id!r} is per-user and the acting user has not connected "
+                f"their credential yet (and no inline token was forwarded)"
+            )
+        return bundle["access_token"]
+
+    async def _oauth2(self, cfg: dict, read, client: httpx.AsyncClient | None) -> ResolvedAuth:
+        data = {
+            "grant_type": "client_credentials",
+            "client_id": await read(cfg.get("client_id_ref")),
+            "client_secret": await read(cfg.get("client_secret_ref")),
+        }
+        if cfg.get("scope"):
+            data["scope"] = cfg["scope"]
+        if cfg.get("audience"):
+            data["audience"] = cfg["audience"]
+        client = client or shared_async_client()
+        # SSRF-guarded (host validated pre-connect + every redirect hop) so a tenant-configured
+        # token_url can't be aimed at an internal/metadata endpoint while carrying secrets (S8).
+        r = await guarded_request(client, "POST", cfg["token_url"], data=data, timeout=30, follow_redirects=True)
+        r.raise_for_status()
+        body = r.json()
+        token = body.get("access_token", "")
+        ttl = body.get("expires_in", cfg.get("cache_ttl_seconds", 3600))
+        return ResolvedAuth(headers={"Authorization": f"Bearer {token}"}, expires_at=time.monotonic() + ttl)
+
+    @staticmethod
+    def _per_user_suffix(context: dict | None, per_user_keys: list[str] | None) -> str:
+        """A stable short hash of the per-user context dims, so each end-user's OAuth bundle is
+        stored under its own secret name when the provider is configured per-user (finding i)."""
+        if not per_user_keys:
+            return ""
+        dims = "|".join(f"{k}={(context or {}).get(k)}" for k in sorted(per_user_keys))
+        return "__u" + hashlib.sha256(dims.encode()).hexdigest()[:12]
+
+    @staticmethod
+    def bundle_secret_name(provider_id: str, context: dict | None = None,
+                           per_user_keys: list[str] | None = None) -> str:
+        # Default (no per_user_keys) preserves the original single-account name.
+        return f"oauth_token__{provider_id}" + AuthResolver._per_user_suffix(context, per_user_keys)
+
+    async def _store_bundle(self, tenant_id: str, project_id: str, provider_id: str, bundle: dict,
+                            *, name: str | None = None) -> None:
+        async with self._sf() as session:
+            await self.secrets.write(
+                session, tenant_id=tenant_id, project_id=project_id,
+                name=name or self.bundle_secret_name(provider_id), value=bundle, kind="oauth",
+            )
+
+    async def _oauth2_auth_code(
+        self, provider, cfg: dict, read, tenant_id: str, project_id: str,
+        client: httpx.AsyncClient | None, context: dict | None = None
+    ) -> ResolvedAuth:
+        # Per-user bundle name when the provider keys tokens per end-user (finding i).
+        per_user = cfg.get("per_user_context_keys")
+        bundle_name = self.bundle_secret_name(provider.id, context, per_user)
+        bundle_ref = cfg.get("token_bundle_ref") or f"secret://proj/{bundle_name}"
+        bundle = await read(bundle_ref)
+        if not isinstance(bundle, dict) or not bundle.get("access_token"):
+            raise KeyError(f"OAuth provider {provider.id!r} is not connected - run the connect flow first")
+        now = time.time()
+        expires_at = bundle.get("expires_at")
+        if expires_at and now >= (float(expires_at) - 60) and bundle.get("refresh_token"):
+            # Serialize refresh per (tenant, provider, per-user bundle) so concurrent resolves
+            # don't race the one-time refresh_token; re-read inside the lock in case a peer
+            # already refreshed it.
+            lock = await _oauth_refresh_locks.acquire_cm(f"{tenant_id}:{provider.id}:{bundle_name}")
+            async with lock:
+                fresh = await read(bundle_ref)
+                if isinstance(fresh, dict) and fresh.get("access_token"):
+                    bundle = fresh
+                    expires_at = bundle.get("expires_at")
+                if expires_at and time.time() >= (float(expires_at) - 60) and bundle.get("refresh_token"):
+                    bundle = await self._refresh_oauth(provider, cfg, read, bundle, tenant_id,
+                                                       project_id, client, bundle_name=bundle_name)
+                    expires_at = bundle.get("expires_at")
+        header = cfg.get("header_name", "Authorization")
+        prefix = cfg.get("prefix", "Bearer ")
+        ttl_left = (float(expires_at) - now) if expires_at else None
+        cache_exp = time.monotonic() + max(0.0, ttl_left - 60) if ttl_left and ttl_left > 0 else None
+        return ResolvedAuth(headers={header: prefix + str(bundle["access_token"])}, expires_at=cache_exp)
+
+    async def _refresh_oauth(self, provider, cfg: dict, read, bundle: dict, tenant_id, project_id,
+                             client, *, bundle_name: str | None = None) -> dict:
+        data = {
+            "grant_type": "refresh_token",
+            "refresh_token": bundle["refresh_token"],
+            "client_id": await read(cfg.get("client_id_ref")),
+            "client_secret": await read(cfg.get("client_secret_ref")),
+        }
+        client = client or shared_async_client()
+        r = await guarded_request(
+            client, "POST", cfg["token_url"],
+            data={k: v for k, v in data.items() if v is not None}, timeout=30, follow_redirects=True,
+        )
+        r.raise_for_status()
+        body = r.json()
+        new = dict(bundle)
+        new["access_token"] = body.get("access_token", bundle["access_token"])
+        if body.get("refresh_token"):
+            new["refresh_token"] = body["refresh_token"]
+        if body.get("expires_in"):
+            new["expires_at"] = time.time() + int(body["expires_in"])
+        await self._store_bundle(tenant_id, project_id, provider.id, new, name=bundle_name)
+        return new
+
+    async def _csrf_session(self, cfg: dict, vars: dict, client: httpx.AsyncClient | None, default_ttl: int) -> ResolvedAuth:
+        fetch = render_value(cfg["token_fetch"], vars)
+        client = client or shared_async_client()
+        r = await guarded_request(
+            client, fetch["method"], fetch["url"],
+            headers=fetch.get("headers"), json=fetch.get("body"), timeout=30, follow_redirects=True,
+        )
+        r.raise_for_status()
+
+        extracted: dict[str, Any] = {}
+        ttl = None
+        for rule in cfg.get("extract", []):
+            val = extract_value(r, rule)
+            if rule.get("kind") == "ttl":
+                ttl = int(val) if val else None
+            else:
+                extracted[rule["name"]] = val
+
+        out = ResolvedAuth(expires_at=time.monotonic() + (ttl or default_ttl))
+        for rule in cfg.get("inject", []):
+            value = render_value(rule["value"], {"extracted": extracted})
+            where = rule["to"]
+            target = {"header": out.headers, "cookie": out.cookies, "query": out.params}[where]
+            target[rule["name"]] = str(value)
+        return out
