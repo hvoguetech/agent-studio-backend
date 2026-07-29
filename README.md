@@ -44,27 +44,37 @@ Forge is built directly on the **MIT-licensed LangChain v1 + LangGraph v1** fram
 
 > **[Watch the demo](docs/media/Forge_demo.mp4)** - the in-product **Forge Assistant** builds and runs a workflow end to end. *(If the player doesn't load inline, click the link to play.)*
 
-### Visual Workflow Builder
-
-Wire an entire app on a **drag-and-drop canvas** (React Flow): drop nodes from the palette - **agents** & deep agents, model calls, classifiers, tools, transforms, retrieval, human input/handoff, routers, loops, parallel fan-out/join, subworkflows, and triggers - and connect them with **typed, validated** edges. A per-node inspector and a live **state schema** keep runs type-safe, while a minimap, undo/redo, and copy/paste keep big graphs manageable. **Save**, **Test**, or open the **Playground** to watch nodes light up as the run streams - then **Publish**.
-
-<p align="center"><img src="docs/media/Workflow.png" alt="Forge visual workflow builder: a React Flow canvas wiring retrieval, router, agent, and end nodes, with a node palette, a state-schema inspector, and a minimap" width="90%"></p>
-
-### Visual Agent Builder
-
-Compose an **Agent** or a **Deep Agent** (planning + subagents for long multi-step tasks) from a model, a system prompt, tools, knowledge, Q&A, and a reorderable **middleware stack** - all from friendly forms, no JSON. A live *"what the model sees"* panel shows the exact compiled prompt and middleware execution order before you ship. Build a **supervisor** visually: drag from a Deep Agent's **subagents** handle to any specialist agent node and it folds in as a callable sub-agent (an org-chart branch on the canvas) - each with its own model, tools, and prompt, dispatched via the `task` tool and shown as named sub-agent spans in the trace.
-
-<p align="center"><img src="docs/media/Agents.png" alt="Forge visual agent builder with model, instructions, tools, and a 'what the model sees' panel" width="90%"></p>
+### Analytics
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/ac064ef7-2a0b-4852-8360-82494c6471af" controls muted width="85%"></video>
+</div>
 
 ### Tool Builder with Response Projection
 
 Register **REST, GraphQL, Code, SQL, MCP, or built-in** tools and test them live against real inputs. A **JMESPath response projection** trims bulky payloads *before* they reach the model - watch the raw → projected **token meter** shrink in real time to control cost. Every outbound call is screened by an **SSRF guard**, with optional retries, rate limits, and caching. Point a tool's endpoint at a **per-environment value** with `{{env.*}}` (from `FORGE_TOOL_VARS`) so the same tool row resolves to your dev / qa / prod host per deploy. The platform **built-ins** (time, calculator, web fetch/search, knowledge search, memory) are auto-provisioned into every project and protected from deletion. Organize tools into **tool sets** - reusable, many-to-many groups that double as folders on the screen, get granted to an agent in one click, and publish as MCP toolsets.
 
-<p align="center"><img src="docs/media/Tools.png" alt="Forge tool builder with request config, live response, and a raw-to-projected token cost meter" width="90%"></p>
-
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/6fc6cedc-f01f-421d-ad44-6299d0a1646e" controls muted width="85%"></video>
+</div>
 The Tools screen groups everything by set (switchable between grid and list), with one-click **export / import** to move tools between projects:
 
 <p align="center"><img src="docs/media/Tools_dashboard.png" alt="Forge Tools screen: the tool grid grouped into reusable tool sets, with grid/list views and one-click export and import" width="90%"></p>
+
+### Visual Agent Builder
+
+Compose an **Agent** or a **Deep Agent** (planning + subagents for long multi-step tasks) from a model, a system prompt, tools, knowledge, Q&A, and a reorderable **middleware stack** - all from friendly forms, no JSON. A live *"what the model sees"* panel shows the exact compiled prompt and middleware execution order before you ship. Build a **supervisor** visually: drag from a Deep Agent's **subagents** handle to any specialist agent node and it folds in as a callable sub-agent (an org-chart branch on the canvas) - each with its own model, tools, and prompt, dispatched via the `task` tool and shown as named sub-agent spans in the trace.
+
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/fe177f46-8e15-4c58-8b70-bc9b52ec3462" controls muted width="85%"></video>
+</div>
+
+### Visual Workflow Builder
+
+Wire an entire app on a **drag-and-drop canvas** (React Flow): drop nodes from the palette - **agents** & deep agents, model calls, classifiers, tools, transforms, retrieval, human input/handoff, routers, loops, parallel fan-out/join, subworkflows, and triggers - and connect them with **typed, validated** edges. A per-node inspector and a live **state schema** keep runs type-safe, while a minimap, undo/redo, and copy/paste keep big graphs manageable. **Save**, **Test**, or open the **Playground** to watch nodes light up as the run streams - then **Publish**.
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/d2e7f826-6844-4f92-8975-b1513e2fd8e9" controls muted width="85%"></video>
+</div>
+<p align="center"><img src="docs/media/Workflow.png" alt="Forge visual workflow builder: a React Flow canvas wiring retrieval, router, agent, and end nodes, with a node palette, a state-schema inspector, and a minimap" width="90%"></p>
 
 ### Knowledge & RAG
 
