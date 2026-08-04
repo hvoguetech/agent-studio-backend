@@ -18,7 +18,7 @@ are included in the next release. Please test against the latest `main` before r
 
 **Please do not open a public issue for security vulnerabilities.**
 
-Report privately via **[GitHub Security Advisories](https://github.com/nihalashetty/Forge/security/advisories/new)**
+Report privately via **[GitHub Security Advisories](https://github.com/marutsinghhvogue/agent-studio/security/advisories/new)**
 (Repository → *Security* → *Report a vulnerability*). This keeps the report confidential
 until a fix is available.
 

@@ -5,7 +5,7 @@ checks your change needs to pass, and our conventions.
 
 ## Ways to contribute
 
-- **Report bugs** and **request features** via [issues](https://github.com/nihalashetty/Forge/issues) (templates provided).
+- **Report bugs** and **request features** via [issues](https://github.com/marutsinghhvogue/agent-studio/issues) (templates provided).
 - **Improve docs** — the [User Manual](docs/MANUAL.md), READMEs, and `TECH_STACK.md`.
 - **Fix or build** — pick up an open issue or propose a change in a discussion first for anything large.
 

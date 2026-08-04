@@ -165,4 +165,4 @@ project adheres to [Semantic Versioning](https://semver.org/).
   embeddable widget, channels, triggers, evaluations, observability/traces, and a
   production-shaped Docker stack. See the [README](README.md) and [ROADMAP](docs/ROADMAP.md).
 
-[Unreleased]: https://github.com/nihalashetty/Forge/compare/main...HEAD
+[Unreleased]: https://github.com/marutsinghhvogue/agent-studio/compare/main...HEAD

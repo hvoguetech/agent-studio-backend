@@ -237,7 +237,7 @@ Contributions are welcome. Forge is MIT-licensed and built to be extended.
 3. Keep the **shared schemas** (`packages/schemas`) authoritative - the validator, compiler, and frontend forms all read from them.
 4. Open a pull request describing the change and the reasoning.
 
-Found a bug or have an idea? Please [open an issue](https://github.com/nihalashetty/Forge/issues).
+Found a bug or have an idea? Please [open an issue](https://github.com/marutsinghhvogue/agent-studio/issues).
 
 ## License
 

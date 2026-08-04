@@ -28,7 +28,7 @@ discussions — and when an individual is representing the project in public spa
 ## Enforcement
 
 Instances of abusive or unacceptable behavior may be reported to the maintainers privately
-via a [GitHub Security Advisory](https://github.com/nihalashetty/Forge/security/advisories/new)
+via a [GitHub Security Advisory](https://github.com/marutsinghhvogue/agent-studio/security/advisories/new)
 or by contacting a maintainer directly. All reports will be reviewed and investigated
 promptly and fairly, and reporter confidentiality will be respected.
 
