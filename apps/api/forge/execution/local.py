@@ -60,8 +60,12 @@ class LocalBackend(ExecutionBackend):
         raise NotImplementedError("retry mode 'restart' lands in A/C11 (#25)")
 
     async def reclaim_orphans(self) -> int:
-        # Today's stale-run reaper; A/C9 (#23) extends this with lease-based re-drive.
-        return await self._run_service().reap_stale_runs()
+        # A/C9: first RE-DRIVE fresh orphans (crashed drivers) from their checkpoint, then run the
+        # stale-run reaper as the backstop (expired queued runs, HITL timeouts, too-old runs).
+        rs = self._run_service()
+        reclaimed = await rs.reclaim_running_orphans()
+        reaped = await rs.reap_stale_runs()
+        return reclaimed + reaped
 
     async def run_scheduler_tick(self) -> int:
         from forge.services.dispatch import run_due_app_events, run_due_schedules

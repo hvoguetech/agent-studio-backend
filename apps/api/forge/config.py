@@ -325,6 +325,15 @@ class Settings(BaseSettings):
     # only "local" and imports no cloud/SSPL backend.
     execution_backend: str = "local"
 
+    # --- Crash recovery (A/C9): the LocalBackend leases a running run (owner_id + a heartbeat
+    # refreshed every `run_heartbeat_interval_seconds`); a `running` row whose heartbeat is
+    # older than `run_orphan_threshold_seconds` (or NULL - e.g. after a process restart) is an
+    # orphan the reclaim supervisor re-drives from its checkpoint, up to `run_max_reclaim_attempts`
+    # times before dead-lettering it to `error`. Keep the threshold well above the interval.
+    run_heartbeat_interval_seconds: int = 15
+    run_orphan_threshold_seconds: int = 90
+    run_max_reclaim_attempts: int = 3
+
     # Seed demo data (projects/tools/auth) on first run. Off => start from an empty
     # workspace and create projects yourself. Set FORGE_SEED_DEMO=true to populate.
     seed_demo: bool = False

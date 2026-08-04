@@ -268,6 +268,13 @@ class Run(PkTimestamp, Base):
     ended_at: Mapped[datetime | None] = mapped_column(nullable=True)
     total_tokens: Mapped[int] = mapped_column(Integer, default=0)
     total_cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    # Crash-recovery lease (A/C9): the driver stamps owner_id and refreshes heartbeat_at while a
+    # run is `running`; a stale/absent heartbeat on a `running` row marks it an orphan the reclaim
+    # supervisor re-drives from its checkpoint. reclaim_attempts bounds the re-drives (dead-letter
+    # to `error` past the cap). Nullable/default-0 so existing rows back-fill safely.
+    owner_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    reclaim_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 class Trace(PkTimestamp, Base):

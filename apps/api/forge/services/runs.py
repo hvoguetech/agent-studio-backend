@@ -16,7 +16,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 
 from forge.config import settings
 from forge.db.base import SessionLocal
@@ -26,6 +26,7 @@ from forge.models import Run, Thread, Trace, Workflow
 from forge.services.runtime import build_compile_context
 from forge.tracing.tracer import ForgeTracer
 from forge.util.locks import ConcurrencyLimitExceeded, tenant_concurrency, thread_locks
+from forge.util.metrics import incr
 from forge.util.serialize import (
     content_to_text,
     jsonable,
@@ -46,6 +47,28 @@ HITL_APPROVAL_TIMEOUT_SECONDS = settings.hitl_approval_timeout_seconds
 RUN_WALL_CLOCK_TIMEOUT_SECONDS = settings.run_wall_clock_timeout_seconds
 
 
+_WORKER_ID: str | None = None
+
+
+def worker_id() -> str:
+    """Stable-per-process id that leases a run's `owner_id` (A/C9). hostname:pid:rand so a
+    reclaim supervisor can tell whose driver last held a run and never collides across replicas."""
+    global _WORKER_ID
+    if _WORKER_ID is None:
+        import os
+        import socket
+
+        _WORKER_ID = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
+    return _WORKER_ID
+
+
+def _stamp_lease(run) -> None:
+    """Claim a run for THIS process: set owner_id + a fresh heartbeat in the same commit that
+    marks it `running`. The heartbeat is then refreshed by _RunControl while the driver lives."""
+    run.owner_id = worker_id()
+    run.heartbeat_at = datetime.utcnow()
+
+
 class _RunControl:
     """Cooperative + cross-worker cancellation registry (audit H).
 
@@ -60,6 +83,7 @@ class _RunControl:
         self._events: dict[str, asyncio.Event] = {}
         self._tasks: dict[str, asyncio.Task] = {}
         self._watchers: dict[str, asyncio.Task] = {}
+        self._heartbeats: dict[str, asyncio.Task] = {}
 
     def begin(self, run_id: str, tenant_id: str) -> asyncio.Event:
         ev = asyncio.Event()
@@ -73,6 +97,11 @@ class _RunControl:
         self._watchers[run_id] = asyncio.create_task(
             self._watch_database(run_id, tenant_id), name=f"forge-cancel-watch:{run_id}",
         )
+        # Refresh the run's heartbeat lease while this driver lives (A/C9); a stale heartbeat is
+        # how the reclaim supervisor tells a crashed driver from a healthy long-running one.
+        self._heartbeats[run_id] = asyncio.create_task(
+            self._heartbeat(run_id, tenant_id), name=f"forge-heartbeat:{run_id}",
+        )
         return ev
 
     async def end(self, run_id: str) -> None:
@@ -83,6 +112,11 @@ class _RunControl:
             watcher.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await watcher
+        heartbeat = self._heartbeats.pop(run_id, None)
+        if heartbeat is not None and heartbeat is not asyncio.current_task():
+            heartbeat.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat
 
     async def _watch_database(self, run_id: str, tenant_id: str) -> None:
         """Observe cancellation committed by another API/worker process.
@@ -110,6 +144,32 @@ class _RunControl:
                 raise
             except Exception:  # noqa: BLE001 - transient DB errors must not kill execution
                 log.debug("run cancel watcher failed for %s", run_id, exc_info=True)
+
+    async def _heartbeat(self, run_id: str, tenant_id: str) -> None:
+        """Refresh this run's `heartbeat_at` (and stamp `owner_id` on the first beat) every
+        `run_heartbeat_interval_seconds` while the driver is live, so the reclaim supervisor can
+        distinguish a healthy long run from a crashed one. Best-effort: a transient DB error just
+        skips a beat (a genuinely dead driver stops beating, which is exactly the orphan signal)."""
+        interval = max(1, int(settings.run_heartbeat_interval_seconds or 15))
+        owner = worker_id()
+        first = True
+        while run_id in self._events:
+            try:
+                set_current_tenant(tenant_id)
+                async with SessionLocal() as session:
+                    values: dict[str, Any] = {"heartbeat_at": datetime.utcnow()}
+                    if first:
+                        values["owner_id"] = owner
+                    await session.execute(
+                        update(Run).where(Run.id == run_id, Run.tenant_id == tenant_id).values(**values)
+                    )
+                    await session.commit()
+                first = False
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - a missed beat must never kill the run
+                log.debug("heartbeat failed for %s", run_id, exc_info=True)
+            await asyncio.sleep(interval)
 
     def is_running(self, run_id: str) -> bool:
         return run_id in self._events
@@ -633,6 +693,7 @@ class RunService:
             try:
                 async with tenant_concurrency.slot(tenant_id, settings.max_concurrent_runs_per_tenant), tlock:
                     run.status = "running"
+                    _stamp_lease(run)  # A/C9 crash-recovery lease: owner_id + heartbeat_at
                     # A resumed run keeps its original start time; a fresh run stamps now.
                     if not resume:
                         run.started_at = datetime.utcnow()
@@ -858,6 +919,7 @@ class RunService:
             try:
                 async with tenant_concurrency.slot(tenant_id, settings.max_concurrent_runs_per_tenant), tlock:
                     run.status = "running"
+                    _stamp_lease(run)  # A/C9 crash-recovery lease: owner_id + heartbeat_at
                     run.started_at = datetime.utcnow()
                     await session.commit()
                     ctx = await build_compile_context(
@@ -1046,9 +1108,13 @@ class RunService:
                 "recursion_limit": _recursion_limit(wf.executable),
             }
             tlock = await thread_locks.acquire_cm(thread.lg_thread_id)
+            # Re-lease + heartbeat during the re-drive so a second crash re-orphans this run and a
+            # concurrent reclaim tick won't double-grab it (begin() also enables cooperative cancel).
+            run_control.begin(run.id, tenant_id)
             try:
                 async with tenant_concurrency.slot(tenant_id, settings.max_concurrent_runs_per_tenant), tlock:
                     run.status = "running"
+                    _stamp_lease(run)
                     await session.commit()
                     ctx = await build_compile_context(
                         session, tenant_id=tenant_id, project_id=run.project_id,
@@ -1078,6 +1144,85 @@ class RunService:
                 log.exception("continue_from_checkpoint %s failed", run.id)
                 await self._finalize_error(session, run, tracer, str(e))
                 return {"run_id": run.id, "status": "error", "error": str(e)}
+            finally:
+                await run_control.end(run_id)
+
+    async def reclaim_running_orphans(
+        self, *, orphan_after_s: int | None = None, max_attempts: int | None = None,
+    ) -> int:
+        """Re-drive runs whose driver died (A/C9 §3.2-3.4). An orphan is a `running` row whose
+        heartbeat is older than `orphan_after_s` (or NULL - e.g. left `running` by a crashed/
+        restarted process) and which no live loop in THIS process owns. Each is re-driven from its
+        checkpoint via `_continue_from_checkpoint` (continue with input=None, so completed
+        supersteps are not re-executed), bounded by `max_attempts` before being dead-lettered to
+        `error`. `interrupted` (HITL) runs are out of scope - the HITL timeout reaper owns those.
+
+        Idempotency note: re-drive is NODE-BOUNDARY safe only. A non-idempotent side effect that
+        partially completed WITHIN a superstep can double-fire on re-drive (the same bar
+        Activepieces sets); per-node idempotency keys are future work."""
+        orphan_after_s = settings.run_orphan_threshold_seconds if orphan_after_s is None else orphan_after_s
+        max_attempts = settings.run_max_reclaim_attempts if max_attempts is None else max_attempts
+        now = datetime.utcnow()
+        cutoff = now - timedelta(seconds=orphan_after_s)
+        # Snapshot candidate ids first (cross-tenant scan), then process each under its own tenant.
+        async with SessionLocal() as session:
+            rows = (
+                await session.execute(
+                    select(Run).where(
+                        Run.status == "running",
+                        or_(Run.heartbeat_at.is_(None), Run.heartbeat_at < cutoff),
+                    )
+                )
+            ).scalars().all()
+            candidates = [(r.id, r.tenant_id, r.project_id) for r in rows if not run_control.is_running(r.id)]
+
+        reclaimed = 0
+        for run_id, tenant_id, project_id in candidates:
+            if run_control.is_running(run_id):  # a live driver appeared since the scan
+                continue
+            set_current_tenant(tenant_id)
+            async with SessionLocal() as session:
+                run = (
+                    await session.execute(
+                        select(Run).where(
+                            Run.id == run_id, Run.tenant_id == tenant_id, Run.status == "running",
+                        )
+                    )
+                ).scalar_one_or_none()
+                # Re-check under this read: another worker may have revived the heartbeat between
+                # the scan and now, or finished the run - never reclaim a run that isn't still stale.
+                if run is None:
+                    continue
+                if run.heartbeat_at is not None and run.heartbeat_at >= cutoff:
+                    continue
+                run.reclaim_attempts = (run.reclaim_attempts or 0) + 1
+                attempt = run.reclaim_attempts
+                if attempt > max_attempts:
+                    run.status = "error"
+                    run.error = run.error or (
+                        f"run reclaim exhausted after {max_attempts} attempt(s); driver kept dying"
+                    )
+                    run.ended_at = now
+                    await session.commit()
+                    log.error("run %s dead-lettered: reclaim attempts exhausted", run_id)
+                    incr("runs.reclaim_dead_lettered", detail=run_id)
+                    reclaimed += 1
+                    continue
+                # Claim it for re-drive (owner + fresh heartbeat) so a peer tick won't double-grab.
+                _stamp_lease(run)
+                await session.commit()
+            try:
+                log.info("reclaiming orphaned run %s (attempt %d/%d)", run_id, attempt, max_attempts)
+                await self._continue_from_checkpoint(
+                    run_id=run_id, tenant_id=tenant_id, project_id=project_id
+                )
+                incr("runs.reclaimed", detail=run_id)
+                reclaimed += 1
+            except Exception:  # noqa: BLE001 - one bad run must not stop the sweep
+                log.exception("reclaim re-drive failed for %s", run_id)
+        if reclaimed:
+            log.info("reclaimed %d orphaned run(s)", reclaimed)
+        return reclaimed
 
     async def cancel_run(self, *, run_id: str, tenant_id: str, project_id: str | None = None) -> dict:
         """Cooperatively cancel a run (audit H): mark it canceled, signal any live loop in this
