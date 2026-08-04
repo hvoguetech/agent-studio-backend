@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Lint (ruff)
+        run: uv run --extra dev ruff check forge tests
+
+      - name: Test (pytest)
+        # --extra all pulls the optional providers/knowledge/vectors so the full suite imports;
+        # first run downloads the local embedder model (fastembed), so this step can be slow.
+        run: uv run --extra dev --extra all python -m pytest -q
