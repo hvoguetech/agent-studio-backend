@@ -10,6 +10,7 @@ from langchain.tools import ToolRuntime
 
 from forge.auth_providers.templates import render_template
 from forge.config import settings
+from forge.tools.output_schema import validate_output
 from forge.tools.projection import project_response
 from forge.tools.rest import (
     _STRICT_NS,
@@ -92,8 +93,14 @@ async def execute_graphql(
             str(e.get("message", e)) if isinstance(e, dict) else str(e) for e in raw["errors"][:5]
         )
         raise GraphQLToolError(f"GraphQL query returned errors: {messages}")
+    projected = project_response(raw, cfg.get("response"))
+    # Validate the PROJECTED output against the tool's declared output_schema (C/B1).
+    validate_output(
+        projected, cfg.get("output_schema"),
+        strict=bool(cfg.get("output_schema_strict")), name=cfg.get("name") or "tool",
+    )
     return {
-        "raw": raw, "projected": project_response(raw, cfg.get("response")), "status": status,
+        "raw": raw, "projected": projected, "status": status,
         "latency_ms": latency, "final_url": str(r.url), "redirect": _redirect_info(r, follow),
     }
 

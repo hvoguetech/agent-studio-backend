@@ -28,6 +28,7 @@ from pydantic import Field, create_model
 
 from forge.auth_providers.templates import has_each_directive, render_template, render_value
 from forge.config import settings
+from forge.tools.output_schema import validate_output
 from forge.tools.projection import cap_payload, project_response
 from forge.tracing import tool_io
 from forge.util.http import select_client
@@ -382,7 +383,14 @@ def project_observation(res: dict, cfg: dict) -> tuple[Any, Any]:
     no projection configured, projected == observation."""
     redirect = res.get("redirect")
     observation = {"body": res.get("raw"), "redirect": redirect} if redirect else res.get("raw")
-    return observation, project_response(observation, cfg.get("response"))
+    projected = project_response(observation, cfg.get("response"))
+    # Validate the PROJECTED output against the tool's declared output_schema (C/B1). Observe/warn
+    # by default; strict raises (fails the tool call). No-op when no output_schema is declared.
+    validate_output(
+        projected, cfg.get("output_schema"),
+        strict=bool(cfg.get("output_schema_strict")), name=cfg.get("name") or "tool",
+    )
+    return observation, projected
 
 
 def _tool_return(res: dict, cfg: dict) -> Any:
