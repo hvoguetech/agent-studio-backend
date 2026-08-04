@@ -24,9 +24,16 @@ jobs:
           enable-cache: true
 
       - name: Lint (ruff)
-        run: uv run --extra dev ruff check ros tests
+        run: uv run --extra dev ruff check ros tests scripts
 
       - name: Test (pytest)
         # --extra all pulls the optional providers/knowledge/vectors so the full suite imports;
         # first run downloads the local embedder model (fastembed), so this step can be slow.
         run: uv run --extra dev --extra all python -m pytest -q
+
+      - name: OpenAPI contract is current (drift check)
+        # Regenerate openapi.json and fail if it differs from the committed copy - keeps the
+        # published API contract (consumed by the frontend's generated client) always current.
+        run: |
+          uv run --extra all python scripts/export_openapi.py
+          git diff --exit-code openapi.json
