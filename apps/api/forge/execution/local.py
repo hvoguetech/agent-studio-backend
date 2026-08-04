@@ -81,13 +81,33 @@ class LocalBackend(ExecutionBackend):
 
 @asynccontextmanager
 async def _local_singleton(name: str, ttl_seconds: int):
-    """Leader/singleton gate. With Redis: `SET NX EX` - a real cross-replica lease. Without Redis:
-    fall back to the static `scheduler_leader` flag, preserving pre-seam single-process behavior.
-    Yields True to the holder, False to everyone else. A/C2 (#4) builds real leader-election here."""
-    if not settings.redis_url:
-        yield bool(settings.scheduler_leader)
-        return
+    """Leader/singleton gate with automatic failover (A/C2). Precedence:
 
+    1. Redis `SET NX EX` - a cross-replica lease (leadership expires on the TTL if the holder dies).
+    2. Postgres SESSION advisory lock - REAL election without Redis (Postgres is the mandatory prod
+       DB); the lock auto-releases when the holder's connection drops, so leadership fails over.
+    3. The static `scheduler_leader` flag - SQLite dev / single process only.
+
+    Yields True to exactly one holder, False to everyone else. Replaces the old static-flag SPOF."""
+    if settings.redis_url:
+        async with _redis_singleton(name, ttl_seconds) as leader:
+            yield leader
+        return
+    if _db_is_postgres():
+        async with _pg_advisory_singleton(name) as leader:
+            yield leader
+        return
+    yield bool(settings.scheduler_leader)
+
+
+def _db_is_postgres() -> bool:
+    url = (settings.database_url or "").lower()
+    return "postgres" in url or "+asyncpg" in url or "+psycopg" in url
+
+
+@asynccontextmanager
+async def _redis_singleton(name: str, ttl_seconds: int):
+    """Cross-replica lease via Redis `SET NX EX`; the lease TTL is the failover window."""
     import uuid
 
     key = f"forge:singleton:{name}"
@@ -117,3 +137,35 @@ async def _local_singleton(name: str, ttl_seconds: int):
                 await redis.aclose()
             except Exception:  # noqa: BLE001
                 pass
+
+
+@asynccontextmanager
+async def _pg_advisory_singleton(name: str):
+    """Leader election via a Postgres SESSION-level advisory lock, held on a dedicated connection
+    for the tick's duration. On the holder's death the connection drops and Postgres releases the
+    lock, so another replica acquires it on its next tick (automatic failover). NOTE: needs a
+    session-pinned connection - NOT compatible with PgBouncer transaction pooling."""
+    import hashlib
+
+    from sqlalchemy import text
+
+    from forge.db.base import SessionLocal
+
+    key = int.from_bytes(hashlib.blake2b(name.encode(), digest_size=8).digest(), "big", signed=True)
+    async with SessionLocal() as session:
+        try:
+            got = bool(
+                (await session.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": key})).scalar()
+            )
+        except Exception:  # noqa: BLE001 - a DB blip must not stop the sweep; fall back to the flag
+            log.debug("singleton(%s): pg advisory lock unavailable; using leader flag", name, exc_info=True)
+            yield bool(settings.scheduler_leader)
+            return
+        try:
+            yield got
+        finally:
+            if got:
+                try:
+                    await session.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": key})
+                except Exception:  # noqa: BLE001
+                    pass
