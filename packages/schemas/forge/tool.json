@@ -12,7 +12,9 @@
     "rate_limit": { "type": "object", "properties": { "per_minute": { "type": "integer" } }, "x-ui": { "section": "Reliability" } },
     "timeout_seconds": { "type": "integer", "default": 30, "x-ui": { "section": "Reliability" } },
     "retry": { "$ref": "forge/common#/$defs/RetryPolicy", "x-ui": { "section": "Reliability", "advanced": true } },
-    "cache": { "type": "object", "properties": { "ttl_seconds": { "type": "integer", "default": 0 } }, "x-ui": { "section": "Reliability", "advanced": true } }
+    "cache": { "type": "object", "properties": { "ttl_seconds": { "type": "integer", "default": 0 } }, "x-ui": { "section": "Reliability", "advanced": true } },
+    "output_schema": { "type": "object", "x-ui": { "section": "Response", "advanced": true, "help": "Optional JSON Schema of the tool's PROJECTED output (post-projection). Powers builder {{...}} autocomplete + mapping validation and runtime validate-warn." } },
+    "output_schema_strict": { "type": "boolean", "default": false, "x-ui": { "section": "Response", "advanced": true, "help": "When on, a projected output that violates output_schema FAILS the tool call (composes with a node's on_error). Default: observe / warn only." } }
   },
   "allOf": [
     { "if": { "properties": { "kind": { "const": "rest_api" } } }, "then": { "$ref": "#/$defs/RestConfig" } },

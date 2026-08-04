@@ -110,4 +110,14 @@ async def test_tool(project_id: str, tool_id: str, body: ToolTestIn, session: As
     ctx = {"end_user_id": user.id, **(body.context or {})}
     result = await ToolService.test(tenant_id, project_id, cfg, body.args, ctx)
     await ToolService.record_test(session, tool, result)
+    # C/B1: infer a DRAFT output_schema from this test-run's projected output so the author can
+    # accept/edit it instead of writing one by hand. Non-fatal; only when there's a sample.
+    if isinstance(result, dict):
+        sample = result.get("projected")
+        if sample is None:
+            sample = result.get("raw")
+        if sample is not None:
+            from forge.tools.output_schema import infer_schema
+
+            result["inferred_output_schema"] = infer_schema(sample)
     return result

@@ -53,6 +53,7 @@
         "id": { "$ref": "forge/common#/$defs/Identifier" },
         "type": { "type": "string", "description": "Must exist in the Node Type Registry." },
         "config": { "type": "object", "description": "Validated against the node type's own schema (Section 3)." },
+        "output_schema": { "type": "object", "description": "Optional JSON Schema of the node's output (post-projection); powers builder {{...}} autocomplete + mapping validation." },
         "position": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" } } }
       }
     },

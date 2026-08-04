@@ -39,6 +39,7 @@ dependencies = [
   # --- Tooling primitives ---
   "jmespath>=1.0,<2",
   "jsonschema>=4.23,<5",
+  "genson>=1.2,<2",  # infer a draft output_schema from a tool test-run (C/B1)
   "httpx>=0.27,<1",
   "RestrictedPython>=7.4,<9",
   # Accurate token counting for the cost meter / budgets (graceful len/4 fallback if absent).
