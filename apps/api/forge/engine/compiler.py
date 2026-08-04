@@ -27,6 +27,7 @@ from forge.nodes.flow import (
     make_router_path,
     resilient_fanout_child,
     router_targets,
+    with_error_handling,
 )
 
 log = logging.getLogger("forge.compiler")
@@ -134,6 +135,11 @@ def compile_workflow(definition: dict, ctx: CompileContext):
             timeout = fcfg.get("item_timeout_seconds")
             if isolate or timeout:
                 node_fn = resilient_fanout_child(node_fn, timeout=timeout, isolate=isolate)
+        # Per-node retry + continue-on-fail (A/C10). Overrides the workflow error_policy for
+        # this node; no-op when the node declares no error_handling.
+        eh = n.get("error_handling")
+        if eh:
+            node_fn = with_error_handling(node_fn, eh)
         builder.add_node(n["id"], node_fn)
 
     # 2) terminal markers -> END

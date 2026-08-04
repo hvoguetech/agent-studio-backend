@@ -279,6 +279,98 @@ def resilient_fanout_child(fn, *, timeout: float | None = None, isolate: bool = 
     return _wrapped
 
 
+_NODE_RETRY_TYPES: dict[str, tuple[type[BaseException], ...]] = {
+    "timeout": (TimeoutError,),
+    "connection": (ConnectionError,),
+    "value_error": (ValueError,),
+    "key_error": (KeyError,),
+    "runtime_error": (RuntimeError,),
+    "exception": (Exception,),
+}
+
+
+def _node_retry_types(names: list[str]) -> tuple[type[BaseException], ...]:
+    out: tuple[type[BaseException], ...] = ()
+    for name in names or []:
+        out += _NODE_RETRY_TYPES.get(str(name).lower(), ())
+    return out
+
+
+def with_error_handling(fn, error_handling: dict):
+    """Wrap a node fn with per-node retry + continue-on-fail (A/C10).
+
+    Mirrors resilient_fanout_child: LangGraph control-flow (interrupts / Command bubbling) and
+    cancellation are ALWAYS re-raised so HITL/cancel keep working. A RETRYABLE failure is retried
+    up to retry.max_retries with capped exponential backoff; once retries are exhausted (or on a
+    non-retryable error) on_error decides - `fail` (re-raise, the default), `continue` (apply an
+    empty state update), or `default` (apply default_output). Each retry bumps the `nodes.retry`
+    metric; a continued failure bumps `nodes.continue_on_fail`. Empty `retry_on` = retry any
+    exception (matches the RetryPolicy schema)."""
+    import asyncio
+    import inspect
+    import random
+
+    from langgraph.errors import GraphBubbleUp
+
+    from forge.util.metrics import incr
+
+    eh = error_handling or {}
+    retry_cfg = eh.get("retry") or {}
+    max_retries = int(retry_cfg.get("max_retries", 0) or 0)
+    initial_delay = float(retry_cfg.get("initial_delay", 1.0) or 0.0)
+    backoff_factor = float(retry_cfg.get("backoff_factor", 2.0) or 1.0)
+    max_delay = float(retry_cfg.get("max_delay", 60.0) or 60.0)
+    jitter = bool(retry_cfg.get("jitter", True))
+    retry_types = _node_retry_types(retry_cfg.get("retry_on") or [])
+    on_error = (eh.get("on_error") or "fail").lower()
+    default_output = eh.get("default_output") or {}
+
+    is_runnable = hasattr(fn, "ainvoke")
+    is_coro = inspect.iscoroutinefunction(fn)
+    accepts_config = False
+    if not is_runnable:
+        try:
+            accepts_config = len(inspect.signature(fn).parameters) >= 2
+        except (TypeError, ValueError):
+            accepts_config = False
+
+    async def _invoke(state, config):
+        if is_runnable:
+            return await fn.ainvoke(state, config)
+        if is_coro:
+            return await (fn(state, config) if accepts_config else fn(state))
+        return fn(state, config) if accepts_config else fn(state)
+
+    async def _wrapped(state: dict, config=None) -> dict:
+        attempt = 0
+        while True:
+            try:
+                return await _invoke(state, config)
+            except (GraphBubbleUp, asyncio.CancelledError):
+                raise  # interrupts / Command bubbling / cancellation must not be retried/swallowed
+            except Exception as e:  # noqa: BLE001 - per-node error policy
+                retryable = isinstance(e, retry_types) if retry_types else True
+                if retryable and attempt < max_retries:
+                    attempt += 1
+                    incr("nodes.retry")
+                    delay = min(max_delay, initial_delay * (backoff_factor ** (attempt - 1)))
+                    if jitter and delay:
+                        delay *= 0.5 + random.random() / 2
+                    log.warning(
+                        "node retry %d/%d after %s: %s", attempt, max_retries, type(e).__name__, e
+                    )
+                    if delay:
+                        await asyncio.sleep(delay)
+                    continue
+                if on_error in ("continue", "default"):
+                    incr("nodes.continue_on_fail")
+                    log.warning("node continue-on-fail (%s) after %s: %s", on_error, type(e).__name__, e)
+                    return dict(default_output) if on_error == "default" else {}
+                raise
+
+    return _wrapped
+
+
 def _apply_join_reducer(reducer: str, value: Any) -> Any:
     """Aggregate a fan-in value per the join `reducer`. `value` is the list the fan-out
     children accumulated into a state key (via that key's `add` reducer)."""

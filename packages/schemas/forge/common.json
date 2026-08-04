@@ -63,6 +63,15 @@
         "jitter": { "type": "boolean", "default": true },
         "retry_on": { "type": "array", "items": { "type": "string" }, "description": "Failure kinds to retry: exception, timeout, connection, http_error, value_error, key_error, runtime_error. Empty = retry any exception." }
       }
+    },
+    "ErrorHandling": {
+      "type": "object",
+      "description": "Per-node retry + on-error policy (A/C10); overrides the workflow error_policy for this node.",
+      "properties": {
+        "retry": { "$ref": "forge/common#/$defs/RetryPolicy" },
+        "on_error": { "type": "string", "enum": ["fail", "continue", "default"], "default": "fail", "description": "After retries are exhausted: fail the run (default), continue with an empty state update, or continue with default_output." },
+        "default_output": { "type": "object", "description": "State update applied when on_error='default' and the node keeps failing after retries." }
+      }
     }
   }
 }

@@ -54,6 +54,7 @@
         "type": { "type": "string", "description": "Must exist in the Node Type Registry." },
         "config": { "type": "object", "description": "Validated against the node type's own schema (Section 3)." },
         "output_schema": { "type": "object", "description": "Optional JSON Schema of the node's output (post-projection); powers builder {{...}} autocomplete + mapping validation." },
+        "error_handling": { "$ref": "forge/common#/$defs/ErrorHandling" },
         "position": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" } } }
       }
     },
