@@ -115,6 +115,16 @@ class Settings(BaseSettings):
         default_factory=lambda: (_DEFAULT_DATA_DIR / "checkpoints.sqlite").as_posix()
     )
 
+    # --- DB connection pool (Postgres; SQLite dev/test uses NullPool). Size against your replica
+    # count + Postgres max_connections: peak connections per replica ~= db_pool_size +
+    # db_max_overflow. `pre_ping` validates a pooled connection before use (drops stale ones after
+    # a DB failover/restart); `recycle` caps connection age in seconds. (A/C6) ---
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+    db_pool_timeout: int = 30
+    db_pool_recycle: int = 1800
+    db_pool_pre_ping: bool = True
+
     # --- Vectors ---
     # Backend for the embedding store. "chroma" (default) is the embedded persistent client -
     # zero-infra, but single-writer (one process owns the on-disk index), so it does NOT share

@@ -42,8 +42,26 @@ _connect_args = {"check_same_thread": False} if _is_sqlite else {}
 # than the one that opened it, causing intermittent "Task was destroyed but it is pending" /
 # "object NoneType can't be used in 'await'" teardown errors. NullPool opens a fresh connection
 # per checkout (cheap for a local sqlite file) and closes it immediately, so nothing lingers
-# across loops. Postgres (prod) keeps the default pooled behaviour - no perf change there.
-_engine_kwargs = {"poolclass": NullPool} if _is_sqlite else {}
+# across loops. Postgres (prod) gets a TUNED QueuePool (A/C6) - see _pool_kwargs.
+
+
+def _pool_kwargs(url: str) -> dict:
+    """Engine pool kwargs by driver. SQLite (dev/test) -> NullPool (avoids the cross-event-loop
+    teardown described above). Postgres (prod) -> a TUNED QueuePool so many replicas don't exhaust
+    connections and connections gone stale after a DB failover/restart are recycled + pre-pinged.
+    Peak connections per replica ~= pool_size + max_overflow; size against Postgres max_connections."""
+    if url.startswith("sqlite"):
+        return {"poolclass": NullPool}
+    return {
+        "pool_size": settings.db_pool_size,
+        "max_overflow": settings.db_max_overflow,
+        "pool_timeout": settings.db_pool_timeout,
+        "pool_recycle": settings.db_pool_recycle,
+        "pool_pre_ping": settings.db_pool_pre_ping,
+    }
+
+
+_engine_kwargs = _pool_kwargs(settings.database_url)
 engine = create_async_engine(
     settings.database_url, echo=False, future=True, connect_args=_connect_args, **_engine_kwargs
 )
