@@ -7,9 +7,7 @@
 Wire agents, tools, knowledge, and logic on a canvas - ground them in your data, connect them to your systems, and deploy to email, an API, an MCP server, or an embeddable web widget. No framework code required.
 
 [![Python](https://img.shields.io/badge/Python-3.11–3.13-3776AB?logo=python&logoColor=white)](apps/api/pyproject.toml)
-[![Node](https://img.shields.io/badge/Node-22%20LTS-339933?logo=nodedotjs&logoColor=white)](apps/web/package.json)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](apps/api)
-[![Next.js](https://img.shields.io/badge/Next.js-14-000000?logo=nextdotjs&logoColor=white)](apps/web)
 [![Built with LangChain v1 + LangGraph v1](https://img.shields.io/badge/Built%20with-LangChain%20v1%20%2B%20LangGraph%20v1-1C3C3C)](https://github.com/langchain-ai/langchain)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 
@@ -19,7 +17,6 @@ Wire agents, tools, knowledge, and logic on a canvas - ground them in your data,
 
 ROS is built directly on the **MIT-licensed LangChain v1 + LangGraph v1** framework - and **never** depends on `langgraph-api` (Elastic 2.0) or LangSmith (commercial). Everything you orchestrate runs on your own infrastructure; nothing is sent to a third-party orchestration service.
 
-- **Fully open source (MIT).** No proprietary core, no usage caps, no vendor lock-in.
 - **Zero-infra local dev.** Boots on SQLite + embedded Chroma + an in-process scheduler - no Docker, Postgres, or Redis required to start.
 - **Production-ready.** Swap to Postgres + pgvector, Redis, and a real secret store with config only - a hardening guard refuses to boot with insecure defaults.
 - **Observable by default.** Every run is a span waterfall with tokens, latency, and cost down to fractions of a cent.
@@ -33,7 +30,6 @@ ROS is built directly on the **MIT-licensed LangChain v1 + LangGraph v1** framew
 - [Documentation](#documentation)
 - [Tech stack](#tech-stack)
 - [Contributing](#contributing)
-- [License](#license)
 
 ## Features
 
@@ -238,9 +234,6 @@ Contributions are welcome. ROS is MIT-licensed and built to be extended.
 
 Found a bug or have an idea? Please [open an issue](https://github.com/marutsinghhvogue/agent-studio/issues).
 
-## License
-
-ROS is released under the **[MIT License](LICENSE)** - free to use, modify, and distribute, including commercially. It builds only on the MIT-licensed LangChain/LangGraph ecosystem, with no Elastic-2.0 or commercial-license dependencies.
 
 <div align="center">
 <sub>Built on the open-source LangChain and LangGraph ecosystem.</sub>
