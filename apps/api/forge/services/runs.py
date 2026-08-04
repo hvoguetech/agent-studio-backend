@@ -1012,6 +1012,73 @@ class RunService:
                 # path already does this via _client_error, the resume path did not.
                 return {"error": _client_error(public, run.id, str(e))}
 
+    async def _continue_from_checkpoint(
+        self, *, run_id: str, tenant_id: str, project_id: str | None = None,
+        run_context: dict | None = None,
+    ) -> dict:
+        """Resume a run's graph from its LAST checkpoint (A/C12 §3.4) - the shared, backend-
+        agnostic primitive both LocalBackend (#23 crash-reclaim) and cloud backends (#36) call.
+
+        Drives with ``None`` (continue pending checkpointed work), NOT ``run.input`` - so
+        completed supersteps are not re-executed and the input is not re-appended (contrast
+        ``run_to_completion``, which starts from ``run.input``). If the checkpoint has no pending
+        work it finalizes from the snapshot without re-execution. Imports no execution backend."""
+        set_current_tenant(tenant_id)
+        async with SessionLocal() as session:
+            where = [Run.tenant_id == tenant_id, Run.id == run_id]
+            if project_id is not None:
+                where.append(Run.project_id == project_id)
+            run = (await session.execute(select(Run).where(*where))).scalar_one_or_none()
+            if run is None:
+                return {"error": "run not found"}
+            wf = (await session.execute(select(Workflow).where(Workflow.id == run.workflow_id))).scalar_one()
+            thread = (await session.execute(select(Thread).where(Thread.id == run.thread_id))).scalar_one()
+
+            checkpointer = self.checkpointer
+            if checkpointer is None:
+                from langgraph.checkpoint.memory import InMemorySaver
+
+                checkpointer = InMemorySaver()
+            tracer = ForgeTracer()
+            config = {
+                "configurable": {"thread_id": thread.lg_thread_id},
+                "callbacks": [tracer],
+                "recursion_limit": _recursion_limit(wf.executable),
+            }
+            tlock = await thread_locks.acquire_cm(thread.lg_thread_id)
+            try:
+                async with tenant_concurrency.slot(tenant_id, settings.max_concurrent_runs_per_tenant), tlock:
+                    run.status = "running"
+                    await session.commit()
+                    ctx = await build_compile_context(
+                        session, tenant_id=tenant_id, project_id=run.project_id,
+                        checkpointer=checkpointer, store=self.store,
+                        end_user=(thread.meta or {}).get("end_user"), run_context=run_context,
+                    )
+                    graph = compile_workflow(wf.executable, ctx)
+                    snapshot = await graph.aget_state(config)
+                    if getattr(snapshot, "next", ()):
+                        # Pending checkpointed work -> continue (skips completed supersteps).
+                        await graph.ainvoke(None, config)
+                        snapshot = await graph.aget_state(config)
+                    interrupted = bool(getattr(snapshot, "next", ())) and any(
+                        getattr(t, "interrupts", None) for t in getattr(snapshot, "tasks", [])
+                    )
+                    await self._finalize(
+                        session, run, tracer, snapshot,
+                        status="interrupted" if interrupted else "done",
+                    )
+                return {
+                    "run_id": run.id, "status": run.status, "interrupted": interrupted,
+                    "answer": _last_ai_text(getattr(snapshot, "values", {}) or {}),
+                }
+            except ConcurrencyLimitExceeded as e:
+                return {"run_id": run.id, "status": "busy", "error": e.message}
+            except Exception as e:  # noqa: BLE001 - resume failure -> error trace, never raise
+                log.exception("continue_from_checkpoint %s failed", run.id)
+                await self._finalize_error(session, run, tracer, str(e))
+                return {"run_id": run.id, "status": "error", "error": str(e)}
+
     async def cancel_run(self, *, run_id: str, tenant_id: str, project_id: str | None = None) -> dict:
         """Cooperatively cancel a run (audit H): mark it canceled, signal any live loop in this
         process to stop (+ hard task-cancel backstop), free the tenant-concurrency slot (it frees

@@ -319,6 +319,12 @@ class Settings(BaseSettings):
     enable_scheduler: bool = True
     scheduler_leader: bool = True
 
+    # --- Execution backend (A/C12): "local" (MIT, default) drives runs/scheduling/reclaim
+    # in-process (+ optional arq offload). Any other value resolves a plugin from the
+    # `forge.execution_backends` entry-point group (imported lazily). The MIT core ships
+    # only "local" and imports no cloud/SSPL backend.
+    execution_backend: str = "local"
+
     # Seed demo data (projects/tools/auth) on first run. Off => start from an empty
     # workspace and create projects yourself. Set FORGE_SEED_DEMO=true to populate.
     seed_demo: bool = False

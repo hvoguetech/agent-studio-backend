@@ -102,33 +102,37 @@ async def _make_checkpointer(stack: AsyncExitStack):
 
 async def _reaper_loop(app: FastAPI) -> None:
     """Periodically reap runs stuck in queued/running (never streamed, or driver died) so
-    they can't linger forever (audit F3)."""
-    from forge.services.runs import RunService
-
+    they can't linger forever (audit F3). Routed through the execution backend (A/C12); gated
+    per-tick on the singleton lease so a multi-replica deployment reaps once."""
     log = logging.getLogger("forge.reaper")
-    run_service = RunService(checkpointer=app.state.checkpointer, store=app.state.store)
+    backend = app.state.execution_backend
     while True:
         try:
             await asyncio.sleep(300)
-            await run_service.reap_stale_runs()
+            async with backend.singleton("reaper", ttl_seconds=600) as is_leader:
+                if is_leader:
+                    await backend.reclaim_orphans()
         except asyncio.CancelledError:
             break
         except Exception:  # noqa: BLE001 - keep the reaper alive across failures
             log.exception("reaper tick failed")
 
 
-async def _retention_loop() -> None:
+async def _retention_loop(app: FastAPI) -> None:
     """Purge traces/spans/runs past each project's retention horizon and audit logs past the
-    workspace horizon, on a timer (finding e). Leader-only (like the reaper) so a multi-replica
-    deployment purges once. No-op unless a retention window is configured."""
-    from forge.services.retention import RetentionService
-
+    workspace horizon, on a timer (finding e). Singleton-gated so a multi-replica deployment
+    purges once. No-op unless a retention window is configured."""
     log = logging.getLogger("forge.retention")
+    backend = app.state.execution_backend
     interval = max(60, int(settings.retention_interval_seconds or 3600))
     while True:
         try:
             await asyncio.sleep(interval)
-            await RetentionService.purge_expired()
+            async with backend.singleton("retention", ttl_seconds=interval) as is_leader:
+                if is_leader:
+                    from forge.services.retention import RetentionService
+
+                    await RetentionService.purge_expired()
         except asyncio.CancelledError:
             break
         except Exception:  # noqa: BLE001 - keep the retention loop alive across failures
@@ -136,18 +140,17 @@ async def _retention_loop() -> None:
 
 
 async def _scheduler_loop(app: FastAPI) -> None:
-    """Fire due `schedule` triggers once a minute. Single-worker in-process scheduler;
-    for multi-worker prod, move to arq/Redis (FORGE_REDIS_URL) so it runs once globally."""
-    from forge.services.dispatch import run_due_app_events, run_due_schedules
-    from forge.services.runs import RunService
-
+    """Fire due `schedule` / `app_event` triggers once a minute via the execution backend
+    (A/C12). Singleton-gated so exactly one instance fires; a cron-driven backend no-ops the
+    tick and schedules itself instead."""
     log = logging.getLogger("forge.scheduler")
-    run_service = RunService(checkpointer=app.state.checkpointer, store=app.state.store)
+    backend = app.state.execution_backend
     while True:
         try:
             await asyncio.sleep(60)
-            await run_due_schedules(run_service)
-            await run_due_app_events(run_service)
+            async with backend.singleton("scheduler", ttl_seconds=120) as is_leader:
+                if is_leader:
+                    await backend.run_scheduler_tick()
         except asyncio.CancelledError:
             break
         except Exception:  # noqa: BLE001 - keep the scheduler alive across failures
@@ -189,6 +192,12 @@ async def lifespan(app: FastAPI):
     app.state.exit_stack = AsyncExitStack()
     app.state.checkpointer = await _make_checkpointer(app.state.exit_stack)
     app.state.store = None
+    # Resolve the execution backend (A/C12): "local" (MIT, default) or a plugin. The core
+    # calls it for offloaded execution, scheduling, reclaim, and singleton coordination.
+    from forge.execution import get_backend
+
+    app.state.execution_backend = get_backend()
+    await app.state.execution_backend.startup(app)
     async with SessionLocal() as session:
         tenant_id = await bootstrap(session)
         if settings.seed_demo:
@@ -202,17 +211,13 @@ async def lifespan(app: FastAPI):
 
         otel.configure()
     bg_tasks: list[asyncio.Task] = []
-    # The scheduler must run on EXACTLY ONE instance (else every replica double-fires).
-    # `enable_scheduler` turns it on; `scheduler_leader` elects the single instance by env
-    # so you can ship one image everywhere (audit P3).
-    if settings.enable_scheduler and settings.scheduler_leader:
+    # Each sweep gates per-tick on `backend.singleton(...)` so it runs on exactly one instance
+    # (Redis lease when present, else the `scheduler_leader` flag - same behavior as before).
+    if settings.enable_scheduler:
         bg_tasks.append(asyncio.create_task(_scheduler_loop(app), name="forge-scheduler"))
-    # The reaper is safe to run everywhere (idempotent), but one instance is enough.
-    if settings.scheduler_leader:
-        bg_tasks.append(asyncio.create_task(_reaper_loop(app), name="forge-reaper"))
-    # Data-retention purge (leader-only): ages out traces/spans/runs + audit logs (finding e).
-    if settings.enable_retention and settings.scheduler_leader:
-        bg_tasks.append(asyncio.create_task(_retention_loop(), name="forge-retention"))
+    bg_tasks.append(asyncio.create_task(_reaper_loop(app), name="forge-reaper"))
+    if settings.enable_retention:
+        bg_tasks.append(asyncio.create_task(_retention_loop(app), name="forge-retention"))
     yield
     for t in bg_tasks:
         t.cancel()
