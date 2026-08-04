@@ -4847,7 +4847,7 @@
   "paths": {
     "/.well-known/oauth-authorization-server": {
       "get": {
-        "operationId": "authorization_server_metadata__well_known_oauth_authorization_server_get",
+        "operationId": "get_well_known_oauth_authorization_server",
         "responses": {
           "200": {
             "content": {
@@ -4866,7 +4866,7 @@
     },
     "/.well-known/oauth-protected-resource/v1/mcp/{project_id}": {
       "get": {
-        "operationId": "protected_resource_metadata__well_known_oauth_protected_resource_v1_mcp__project_id__get",
+        "operationId": "get_well_known_oauth_protected_resource_v1_mcp_project_id",
         "parameters": [
           {
             "in": "path",
@@ -4907,7 +4907,7 @@
     "/health": {
       "get": {
         "description": "Liveness: the process is up and serving. Cheap and dependency-free.",
-        "operationId": "health_health_get",
+        "operationId": "get_health",
         "responses": {
           "200": {
             "content": {
@@ -4931,7 +4931,7 @@
     "/livez": {
       "get": {
         "description": "Liveness: the process is up and serving. Cheap and dependency-free.",
-        "operationId": "health_livez_get",
+        "operationId": "get_livez",
         "responses": {
           "200": {
             "content": {
@@ -4955,7 +4955,7 @@
     "/metrics": {
       "get": {
         "description": "Prometheus text-format exposition of the in-process counters so operators can scrape\nthem (per-worker; aggregate across replicas at the scraper). Complements the OTLP trace\nexport. No new dependency - rendered directly from the counter snapshot.\n\nGated behind `settings.expose_metrics` (default off): the counters are an internal\noperational surface, so keep it disabled on public deployments and enable only where the\nscrape endpoint is reachable from a trusted network.",
-        "operationId": "metrics_metrics_get",
+        "operationId": "get_metrics",
         "responses": {
           "200": {
             "content": {
@@ -4975,7 +4975,7 @@
     "/readyz": {
       "get": {
         "description": "Readiness: can this instance actually serve traffic? Checks the DB, the durable\ncheckpointer, and (when configured) Redis, the vector store, and a worker heartbeat. Returns\n503 when a GATING dependency is down so a load balancer / k8s probe routes around it\n(audit P-imp / finding k). The worker is reported but non-gating - the API can still serve\nwhile the worker tier is down (runs queue).",
-        "operationId": "readyz_readyz_get",
+        "operationId": "get_readyz",
         "responses": {
           "200": {
             "content": {
@@ -4994,7 +4994,7 @@
     },
     "/v1/api-keys": {
       "get": {
-        "operationId": "list_api_keys_v1_api_keys_get",
+        "operationId": "get_v1_api_keys",
         "responses": {
           "200": {
             "content": {
@@ -5011,7 +5011,7 @@
         ]
       },
       "post": {
-        "operationId": "create_api_key_v1_api_keys_post",
+        "operationId": "post_v1_api_keys",
         "requestBody": {
           "content": {
             "application/json": {
@@ -5050,7 +5050,7 @@
     },
     "/v1/api-keys/{key_id}": {
       "delete": {
-        "operationId": "revoke_api_key_v1_api_keys__key_id__delete",
+        "operationId": "delete_v1_api_keys_key_id",
         "parameters": [
           {
             "in": "path",
@@ -5086,7 +5086,7 @@
     "/v1/audit": {
       "get": {
         "description": "Filtered, keyset-paginated audit list (newest first). Returns a JSON array (unchanged\nshape); the opaque cursor for the next page, when there is one, is in the `X-Next-Cursor`\nresponse header (finding g).",
-        "operationId": "list_audit_v1_audit_get",
+        "operationId": "get_v1_audit",
         "parameters": [
           {
             "in": "query",
@@ -5234,7 +5234,7 @@
     "/v1/audit/export": {
       "get": {
         "description": "Stream ALL matching audit rows as newline-delimited JSON (oldest first), paged internally\nso a large export never buffers the whole table (finding g).",
-        "operationId": "export_audit_v1_audit_export_get",
+        "operationId": "get_v1_audit_export",
         "parameters": [
           {
             "in": "query",
@@ -5348,7 +5348,7 @@
     "/v1/audit/metrics": {
       "get": {
         "description": "In-process resilience counters (swallowed-failure visibility).",
-        "operationId": "metrics_v1_audit_metrics_get",
+        "operationId": "get_v1_audit_metrics",
         "responses": {
           "200": {
             "content": {
@@ -5368,7 +5368,7 @@
     "/v1/auth/accept-invite": {
       "post": {
         "description": "Public: redeem an invite token, set the first password, and log the user in.",
-        "operationId": "accept_invite_v1_auth_accept_invite_post",
+        "operationId": "post_v1_auth_accept_invite",
         "requestBody": {
           "content": {
             "application/json": {
@@ -5408,7 +5408,7 @@
     "/v1/auth/invite-info": {
       "get": {
         "description": "Public: validate an invite token and return who it's for (for the accept screen).",
-        "operationId": "invite_info_v1_auth_invite_info_get",
+        "operationId": "get_v1_auth_invite_info",
         "parameters": [
           {
             "in": "query",
@@ -5448,7 +5448,7 @@
     },
     "/v1/auth/login": {
       "post": {
-        "operationId": "login_v1_auth_login_post",
+        "operationId": "post_v1_auth_login",
         "requestBody": {
           "content": {
             "application/json": {
@@ -5488,7 +5488,7 @@
     "/v1/auth/logout": {
       "post": {
         "description": "Revoke the presented refresh token (this device/session). Unauthenticated: possession of\nthe signed token is the proof, so it works even after the access token expires (finding d).",
-        "operationId": "logout_v1_auth_logout_post",
+        "operationId": "post_v1_auth_logout",
         "requestBody": {
           "content": {
             "application/json": {
@@ -5528,7 +5528,7 @@
     "/v1/auth/logout-all": {
       "post": {
         "description": "Sign out every session for the current user (all devices) by advancing their revocation\ncutoff so all previously-issued access/refresh tokens are rejected (finding d).",
-        "operationId": "logout_all_v1_auth_logout_all_post",
+        "operationId": "post_v1_auth_logout_all",
         "responses": {
           "200": {
             "content": {
@@ -5547,7 +5547,7 @@
     },
     "/v1/auth/me": {
       "get": {
-        "operationId": "me_v1_auth_me_get",
+        "operationId": "get_v1_auth_me",
         "responses": {
           "200": {
             "content": {
@@ -5566,7 +5566,7 @@
     },
     "/v1/auth/mfa/totp/confirm": {
       "post": {
-        "operationId": "totp_confirm_v1_auth_mfa_totp_confirm_post",
+        "operationId": "post_v1_auth_mfa_totp_confirm",
         "requestBody": {
           "content": {
             "application/json": {
@@ -5606,7 +5606,7 @@
     "/v1/auth/mfa/totp/disable": {
       "post": {
         "description": "Disable MFA. Requires a current code so a hijacked session can't silently turn it off.",
-        "operationId": "totp_disable_v1_auth_mfa_totp_disable_post",
+        "operationId": "post_v1_auth_mfa_totp_disable",
         "requestBody": {
           "content": {
             "application/json": {
@@ -5646,7 +5646,7 @@
     "/v1/auth/mfa/totp/enroll": {
       "post": {
         "description": "Generate a TOTP secret (NOT yet active - confirm a code to enable). Returns the secret\nand an otpauth:// URL for an authenticator-app QR.",
-        "operationId": "totp_enroll_v1_auth_mfa_totp_enroll_post",
+        "operationId": "post_v1_auth_mfa_totp_enroll",
         "responses": {
           "200": {
             "content": {
@@ -5665,7 +5665,7 @@
     },
     "/v1/auth/refresh": {
       "post": {
-        "operationId": "refresh_v1_auth_refresh_post",
+        "operationId": "post_v1_auth_refresh",
         "requestBody": {
           "content": {
             "application/json": {
@@ -5704,7 +5704,7 @@
     },
     "/v1/auth/register": {
       "post": {
-        "operationId": "register_v1_auth_register_post",
+        "operationId": "post_v1_auth_register",
         "requestBody": {
           "content": {
             "application/json": {
@@ -5743,7 +5743,7 @@
     },
     "/v1/auth/request-email-verification": {
       "post": {
-        "operationId": "request_email_verification_v1_auth_request_email_verification_post",
+        "operationId": "post_v1_auth_request_email_verification",
         "responses": {
           "200": {
             "content": {
@@ -5763,7 +5763,7 @@
     "/v1/auth/request-password-reset": {
       "post": {
         "description": "Public: email a signed reset link. Always returns ok (never reveals whether the address\nexists). No SMTP configured => the link is returned so an admin/dev can use it.",
-        "operationId": "request_password_reset_v1_auth_request_password_reset_post",
+        "operationId": "post_v1_auth_request_password_reset",
         "requestBody": {
           "content": {
             "application/json": {
@@ -5803,7 +5803,7 @@
     "/v1/auth/reset-password": {
       "post": {
         "description": "Public: redeem a reset token, set a new password, and sign out all existing sessions.\nDoes NOT auto-login (user re-authenticates, re-prompting MFA).",
-        "operationId": "reset_password_v1_auth_reset_password_post",
+        "operationId": "post_v1_auth_reset_password",
         "requestBody": {
           "content": {
             "application/json": {
@@ -5842,7 +5842,7 @@
     },
     "/v1/auth/set-password": {
       "post": {
-        "operationId": "set_my_password_v1_auth_set_password_post",
+        "operationId": "post_v1_auth_set_password",
         "requestBody": {
           "content": {
             "application/json": {
@@ -5881,7 +5881,7 @@
     },
     "/v1/auth/verify-email": {
       "post": {
-        "operationId": "verify_email_v1_auth_verify_email_post",
+        "operationId": "post_v1_auth_verify_email",
         "requestBody": {
           "content": {
             "application/json": {
@@ -5920,7 +5920,7 @@
     },
     "/v1/channels/email/{key}/inbound": {
       "post": {
-        "operationId": "email_inbound_v1_channels_email__key__inbound_post",
+        "operationId": "post_v1_channels_email_key_inbound",
         "parameters": [
           {
             "in": "path",
@@ -5960,7 +5960,7 @@
     },
     "/v1/embed/{key}/components": {
       "get": {
-        "operationId": "embed_components_v1_embed__key__components_get",
+        "operationId": "get_v1_embed_key_components",
         "parameters": [
           {
             "in": "path",
@@ -6000,7 +6000,7 @@
     },
     "/v1/embed/{key}/config": {
       "get": {
-        "operationId": "embed_config_v1_embed__key__config_get",
+        "operationId": "get_v1_embed_key_config",
         "parameters": [
           {
             "in": "path",
@@ -6042,7 +6042,7 @@
     },
     "/v1/embed/{key}/runs": {
       "post": {
-        "operationId": "embed_create_run_v1_embed__key__runs_post",
+        "operationId": "post_v1_embed_key_runs",
         "parameters": [
           {
             "in": "path",
@@ -6093,7 +6093,7 @@
     "/v1/embed/{key}/runs/{run_id}/resume": {
       "post": {
         "description": "Resume an interrupted (human-in-the-loop) run from the widget - mirrors the authed\nresume endpoint but resolves the tenant+project from the publishable key. resume() is\nscoped to this project (audit S1); the end-user identity is already bound to the thread\n(thread.meta.end_user) from the original run, so a value-only body matches the authed\nresume exactly.",
-        "operationId": "embed_resume_v1_embed__key__runs__run_id__resume_post",
+        "operationId": "post_v1_embed_key_runs_run_id_resume",
         "parameters": [
           {
             "in": "path",
@@ -6152,7 +6152,7 @@
     },
     "/v1/embed/{key}/runs/{run_id}/stream": {
       "get": {
-        "operationId": "embed_stream_v1_embed__key__runs__run_id__stream_get",
+        "operationId": "get_v1_embed_key_runs_run_id_stream",
         "parameters": [
           {
             "in": "path",
@@ -6217,7 +6217,7 @@
     },
     "/v1/hooks/{key}": {
       "post": {
-        "operationId": "inbound_webhook_v1_hooks__key__post",
+        "operationId": "post_v1_hooks_key",
         "parameters": [
           {
             "in": "path",
@@ -6268,7 +6268,7 @@
     "/v1/mcp/{project_id}": {
       "delete": {
         "description": "Base MCP endpoint: the project's published toolset surface (see module docstring).",
-        "operationId": "mcp_rpc_v1_mcp__project_id__get",
+        "operationId": "delete_v1_mcp_project_id",
         "parameters": [
           {
             "in": "path",
@@ -6307,7 +6307,7 @@
       },
       "get": {
         "description": "Base MCP endpoint: the project's published toolset surface (see module docstring).",
-        "operationId": "mcp_rpc_v1_mcp__project_id__get",
+        "operationId": "get_v1_mcp_project_id",
         "parameters": [
           {
             "in": "path",
@@ -6346,7 +6346,7 @@
       },
       "post": {
         "description": "Base MCP endpoint: the project's published toolset surface (see module docstring).",
-        "operationId": "mcp_rpc_v1_mcp__project_id__get",
+        "operationId": "post_v1_mcp_project_id",
         "parameters": [
           {
             "in": "path",
@@ -6387,7 +6387,7 @@
     "/v1/mcp/{project_id}/toolset/{slug}": {
       "delete": {
         "description": "Scoped MCP endpoint: exposes only the tools in tool set `slug` (GitHub-style toolset).",
-        "operationId": "mcp_rpc_toolset_v1_mcp__project_id__toolset__slug__get",
+        "operationId": "delete_v1_mcp_project_id_toolset_slug",
         "parameters": [
           {
             "in": "path",
@@ -6435,7 +6435,7 @@
       },
       "get": {
         "description": "Scoped MCP endpoint: exposes only the tools in tool set `slug` (GitHub-style toolset).",
-        "operationId": "mcp_rpc_toolset_v1_mcp__project_id__toolset__slug__get",
+        "operationId": "get_v1_mcp_project_id_toolset_slug",
         "parameters": [
           {
             "in": "path",
@@ -6483,7 +6483,7 @@
       },
       "post": {
         "description": "Scoped MCP endpoint: exposes only the tools in tool set `slug` (GitHub-style toolset).",
-        "operationId": "mcp_rpc_toolset_v1_mcp__project_id__toolset__slug__get",
+        "operationId": "post_v1_mcp_project_id_toolset_slug",
         "parameters": [
           {
             "in": "path",
@@ -6532,7 +6532,7 @@
     },
     "/v1/models": {
       "get": {
-        "operationId": "list_models_v1_models_get",
+        "operationId": "get_v1_models",
         "responses": {
           "200": {
             "content": {
@@ -6553,7 +6553,7 @@
     },
     "/v1/node-types": {
       "get": {
-        "operationId": "list_node_types_v1_node_types_get",
+        "operationId": "get_v1_node_types",
         "responses": {
           "200": {
             "content": {
@@ -6578,7 +6578,7 @@
     },
     "/v1/oauth/authorize": {
       "get": {
-        "operationId": "authorize_form_v1_oauth_authorize_get",
+        "operationId": "get_v1_oauth_authorize",
         "responses": {
           "200": {
             "content": {
@@ -6597,7 +6597,7 @@
         ]
       },
       "post": {
-        "operationId": "authorize_submit_v1_oauth_authorize_post",
+        "operationId": "post_v1_oauth_authorize",
         "requestBody": {
           "content": {
             "application/x-www-form-urlencoded": {
@@ -6636,7 +6636,7 @@
     },
     "/v1/oauth/callback": {
       "get": {
-        "operationId": "oauth_callback_v1_oauth_callback_get",
+        "operationId": "get_v1_oauth_callback",
         "parameters": [
           {
             "in": "query",
@@ -6717,7 +6717,7 @@
     },
     "/v1/oauth/register": {
       "post": {
-        "operationId": "register_client_v1_oauth_register_post",
+        "operationId": "post_v1_oauth_register",
         "requestBody": {
           "content": {
             "application/json": {
@@ -6758,7 +6758,7 @@
     },
     "/v1/oauth/token": {
       "post": {
-        "operationId": "token_v1_oauth_token_post",
+        "operationId": "post_v1_oauth_token",
         "requestBody": {
           "content": {
             "application/x-www-form-urlencoded": {
@@ -6797,7 +6797,7 @@
     },
     "/v1/pricing": {
       "get": {
-        "operationId": "list_pricing_v1_pricing_get",
+        "operationId": "get_v1_pricing",
         "responses": {
           "200": {
             "content": {
@@ -6816,7 +6816,7 @@
     },
     "/v1/pricing/{model}": {
       "put": {
-        "operationId": "set_pricing_v1_pricing__model__put",
+        "operationId": "put_v1_pricing_model",
         "parameters": [
           {
             "in": "path",
@@ -6866,7 +6866,7 @@
     },
     "/v1/projects": {
       "get": {
-        "operationId": "list_projects_v1_projects_get",
+        "operationId": "get_v1_projects",
         "responses": {
           "200": {
             "content": {
@@ -6889,7 +6889,7 @@
         ]
       },
       "post": {
-        "operationId": "create_project_v1_projects_post",
+        "operationId": "post_v1_projects",
         "requestBody": {
           "content": {
             "application/json": {
@@ -6930,7 +6930,7 @@
     },
     "/v1/projects/{project_id}": {
       "delete": {
-        "operationId": "delete_project_v1_projects__project_id__delete",
+        "operationId": "delete_v1_projects_project_id",
         "parameters": [
           {
             "in": "path",
@@ -6963,7 +6963,7 @@
         ]
       },
       "get": {
-        "operationId": "get_project_v1_projects__project_id__get",
+        "operationId": "get_v1_projects_project_id",
         "parameters": [
           {
             "in": "path",
@@ -7003,7 +7003,7 @@
         ]
       },
       "patch": {
-        "operationId": "update_project_v1_projects__project_id__patch",
+        "operationId": "patch_v1_projects_project_id",
         "parameters": [
           {
             "in": "path",
@@ -7055,7 +7055,7 @@
     },
     "/v1/projects/{project_id}/agents": {
       "get": {
-        "operationId": "list_agents_v1_projects__project_id__agents_get",
+        "operationId": "get_v1_projects_project_id_agents",
         "parameters": [
           {
             "in": "path",
@@ -7099,7 +7099,7 @@
         ]
       },
       "post": {
-        "operationId": "create_agent_v1_projects__project_id__agents_post",
+        "operationId": "post_v1_projects_project_id_agents",
         "parameters": [
           {
             "in": "path",
@@ -7152,7 +7152,7 @@
     "/v1/projects/{project_id}/agents/export": {
       "post": {
         "description": "Serialize the selected agent presets (full config) into a downloadable bundle.",
-        "operationId": "export_agents_v1_projects__project_id__agents_export_post",
+        "operationId": "post_v1_projects_project_id_agents_export",
         "parameters": [
           {
             "in": "path",
@@ -7203,7 +7203,7 @@
     "/v1/projects/{project_id}/agents/import": {
       "post": {
         "description": "Create agent presets from an uploaded bundle in THIS project (auto-renamed on collision).",
-        "operationId": "import_agents_v1_projects__project_id__agents_import_post",
+        "operationId": "post_v1_projects_project_id_agents_import",
         "parameters": [
           {
             "in": "path",
@@ -7255,7 +7255,7 @@
     },
     "/v1/projects/{project_id}/agents/validate": {
       "post": {
-        "operationId": "validate_agent_v1_projects__project_id__agents_validate_post",
+        "operationId": "post_v1_projects_project_id_agents_validate",
         "parameters": [
           {
             "in": "path",
@@ -7307,7 +7307,7 @@
     },
     "/v1/projects/{project_id}/agents/{agent_id}": {
       "delete": {
-        "operationId": "delete_agent_v1_projects__project_id__agents__agent_id__delete",
+        "operationId": "delete_v1_projects_project_id_agents_agent_id",
         "parameters": [
           {
             "in": "path",
@@ -7349,7 +7349,7 @@
         ]
       },
       "get": {
-        "operationId": "get_agent_v1_projects__project_id__agents__agent_id__get",
+        "operationId": "get_v1_projects_project_id_agents_agent_id",
         "parameters": [
           {
             "in": "path",
@@ -7398,7 +7398,7 @@
         ]
       },
       "patch": {
-        "operationId": "update_agent_v1_projects__project_id__agents__agent_id__patch",
+        "operationId": "patch_v1_projects_project_id_agents_agent_id",
         "parameters": [
           {
             "in": "path",
@@ -7460,7 +7460,7 @@
     "/v1/projects/{project_id}/assistant/resume": {
       "post": {
         "description": "Resume a paused assistant thread (HITL approval for destructive tools).",
-        "operationId": "assistant_resume_v1_projects__project_id__assistant_resume_post",
+        "operationId": "post_v1_projects_project_id_assistant_resume",
         "parameters": [
           {
             "in": "path",
@@ -7510,7 +7510,7 @@
     },
     "/v1/projects/{project_id}/assistant/stream": {
       "post": {
-        "operationId": "assistant_stream_v1_projects__project_id__assistant_stream_post",
+        "operationId": "post_v1_projects_project_id_assistant_stream",
         "parameters": [
           {
             "in": "path",
@@ -7560,7 +7560,7 @@
     },
     "/v1/projects/{project_id}/auth-providers": {
       "get": {
-        "operationId": "list_aps_v1_projects__project_id__auth_providers_get",
+        "operationId": "get_v1_projects_project_id_auth_providers",
         "parameters": [
           {
             "in": "path",
@@ -7604,7 +7604,7 @@
         ]
       },
       "post": {
-        "operationId": "create_ap_v1_projects__project_id__auth_providers_post",
+        "operationId": "post_v1_projects_project_id_auth_providers",
         "parameters": [
           {
             "in": "path",
@@ -7656,7 +7656,7 @@
     },
     "/v1/projects/{project_id}/auth-providers/{ap_id}": {
       "delete": {
-        "operationId": "delete_ap_v1_projects__project_id__auth_providers__ap_id__delete",
+        "operationId": "delete_v1_projects_project_id_auth_providers_ap_id",
         "parameters": [
           {
             "in": "path",
@@ -7698,7 +7698,7 @@
         ]
       },
       "get": {
-        "operationId": "get_ap_v1_projects__project_id__auth_providers__ap_id__get",
+        "operationId": "get_v1_projects_project_id_auth_providers_ap_id",
         "parameters": [
           {
             "in": "path",
@@ -7747,7 +7747,7 @@
         ]
       },
       "patch": {
-        "operationId": "update_ap_v1_projects__project_id__auth_providers__ap_id__patch",
+        "operationId": "patch_v1_projects_project_id_auth_providers_ap_id",
         "parameters": [
           {
             "in": "path",
@@ -7808,7 +7808,7 @@
     },
     "/v1/projects/{project_id}/auth-providers/{ap_id}/connections/{end_user_id}": {
       "delete": {
-        "operationId": "delete_user_connection_v1_projects__project_id__auth_providers__ap_id__connections__end_user_id__delete",
+        "operationId": "delete_v1_projects_project_id_auth_providers_ap_id_connections_end_user_id",
         "parameters": [
           {
             "in": "path",
@@ -7859,7 +7859,7 @@
         ]
       },
       "get": {
-        "operationId": "get_user_connection_v1_projects__project_id__auth_providers__ap_id__connections__end_user_id__get",
+        "operationId": "get_v1_projects_project_id_auth_providers_ap_id_connections_end_user_id",
         "parameters": [
           {
             "in": "path",
@@ -7915,7 +7915,7 @@
         ]
       },
       "put": {
-        "operationId": "set_user_connection_v1_projects__project_id__auth_providers__ap_id__connections__end_user_id__put",
+        "operationId": "put_v1_projects_project_id_auth_providers_ap_id_connections_end_user_id",
         "parameters": [
           {
             "in": "path",
@@ -7978,7 +7978,7 @@
     },
     "/v1/projects/{project_id}/auth-providers/{ap_id}/oauth/start": {
       "post": {
-        "operationId": "oauth_start_v1_projects__project_id__auth_providers__ap_id__oauth_start_post",
+        "operationId": "post_v1_projects_project_id_auth_providers_ap_id_oauth_start",
         "parameters": [
           {
             "in": "path",
@@ -8044,7 +8044,7 @@
     },
     "/v1/projects/{project_id}/auth-providers/{ap_id}/oauth/status": {
       "get": {
-        "operationId": "oauth_status_v1_projects__project_id__auth_providers__ap_id__oauth_status_get",
+        "operationId": "get_v1_projects_project_id_auth_providers_ap_id_oauth_status",
         "parameters": [
           {
             "in": "path",
@@ -8093,7 +8093,7 @@
     },
     "/v1/projects/{project_id}/auth-providers/{ap_id}/test": {
       "post": {
-        "operationId": "test_ap_v1_projects__project_id__auth_providers__ap_id__test_post",
+        "operationId": "post_v1_projects_project_id_auth_providers_ap_id_test",
         "parameters": [
           {
             "in": "path",
@@ -8152,7 +8152,7 @@
     },
     "/v1/projects/{project_id}/channels": {
       "get": {
-        "operationId": "list_channels_v1_projects__project_id__channels_get",
+        "operationId": "get_v1_projects_project_id_channels",
         "parameters": [
           {
             "in": "path",
@@ -8190,7 +8190,7 @@
         ]
       },
       "post": {
-        "operationId": "create_channel_v1_projects__project_id__channels_post",
+        "operationId": "post_v1_projects_project_id_channels",
         "parameters": [
           {
             "in": "path",
@@ -8240,7 +8240,7 @@
     },
     "/v1/projects/{project_id}/channels/{channel_id}": {
       "delete": {
-        "operationId": "delete_channel_v1_projects__project_id__channels__channel_id__delete",
+        "operationId": "delete_v1_projects_project_id_channels_channel_id",
         "parameters": [
           {
             "in": "path",
@@ -8287,7 +8287,7 @@
         ]
       },
       "patch": {
-        "operationId": "update_channel_v1_projects__project_id__channels__channel_id__patch",
+        "operationId": "patch_v1_projects_project_id_channels_channel_id",
         "parameters": [
           {
             "in": "path",
@@ -8346,7 +8346,7 @@
     },
     "/v1/projects/{project_id}/components": {
       "get": {
-        "operationId": "list_components_v1_projects__project_id__components_get",
+        "operationId": "get_v1_projects_project_id_components",
         "parameters": [
           {
             "in": "path",
@@ -8390,7 +8390,7 @@
         ]
       },
       "post": {
-        "operationId": "create_component_v1_projects__project_id__components_post",
+        "operationId": "post_v1_projects_project_id_components",
         "parameters": [
           {
             "in": "path",
@@ -8443,7 +8443,7 @@
     "/v1/projects/{project_id}/components/export": {
       "post": {
         "description": "Serialize the selected components (HTML/CSS/props/actions) into a downloadable bundle.",
-        "operationId": "export_components_v1_projects__project_id__components_export_post",
+        "operationId": "post_v1_projects_project_id_components_export",
         "parameters": [
           {
             "in": "path",
@@ -8494,7 +8494,7 @@
     "/v1/projects/{project_id}/components/import": {
       "post": {
         "description": "Create components from an uploaded bundle in THIS project (auto-renamed on collision).",
-        "operationId": "import_components_v1_projects__project_id__components_import_post",
+        "operationId": "post_v1_projects_project_id_components_import",
         "parameters": [
           {
             "in": "path",
@@ -8546,7 +8546,7 @@
     },
     "/v1/projects/{project_id}/components/{component_id}": {
       "delete": {
-        "operationId": "delete_component_v1_projects__project_id__components__component_id__delete",
+        "operationId": "delete_v1_projects_project_id_components_component_id",
         "parameters": [
           {
             "in": "path",
@@ -8588,7 +8588,7 @@
         ]
       },
       "get": {
-        "operationId": "get_component_v1_projects__project_id__components__component_id__get",
+        "operationId": "get_v1_projects_project_id_components_component_id",
         "parameters": [
           {
             "in": "path",
@@ -8637,7 +8637,7 @@
         ]
       },
       "patch": {
-        "operationId": "update_component_v1_projects__project_id__components__component_id__patch",
+        "operationId": "patch_v1_projects_project_id_components_component_id",
         "parameters": [
           {
             "in": "path",
@@ -8699,7 +8699,7 @@
     "/v1/projects/{project_id}/connections": {
       "get": {
         "description": "The per-user providers this project defines, each with whether the CALLER has connected it.\nMinimal fields only (no config / secret refs) \u2014 safe for the connector home page.",
-        "operationId": "list_my_connections_v1_projects__project_id__connections_get",
+        "operationId": "get_v1_projects_project_id_connections",
         "parameters": [
           {
             "in": "path",
@@ -8739,7 +8739,7 @@
     },
     "/v1/projects/{project_id}/connections/{ap_id}": {
       "delete": {
-        "operationId": "clear_my_connection_v1_projects__project_id__connections__ap_id__delete",
+        "operationId": "delete_v1_projects_project_id_connections_ap_id",
         "parameters": [
           {
             "in": "path",
@@ -8781,7 +8781,7 @@
         ]
       },
       "get": {
-        "operationId": "my_connection_status_v1_projects__project_id__connections__ap_id__get",
+        "operationId": "get_v1_projects_project_id_connections_ap_id",
         "parameters": [
           {
             "in": "path",
@@ -8828,7 +8828,7 @@
         ]
       },
       "put": {
-        "operationId": "set_my_connection_v1_projects__project_id__connections__ap_id__put",
+        "operationId": "put_v1_projects_project_id_connections_ap_id",
         "parameters": [
           {
             "in": "path",
@@ -8882,7 +8882,7 @@
     },
     "/v1/projects/{project_id}/conversations": {
       "get": {
-        "operationId": "list_conversations_v1_projects__project_id__conversations_get",
+        "operationId": "get_v1_projects_project_id_conversations",
         "parameters": [
           {
             "in": "path",
@@ -9023,7 +9023,7 @@
     },
     "/v1/projects/{project_id}/conversations/facets": {
       "get": {
-        "operationId": "conversation_facets_v1_projects__project_id__conversations_facets_get",
+        "operationId": "get_v1_projects_project_id_conversations_facets",
         "parameters": [
           {
             "in": "path",
@@ -9066,7 +9066,7 @@
     "/v1/projects/{project_id}/conversations/purge": {
       "post": {
         "description": "Manual retention control (admin only). Nothing is auto-deleted.",
-        "operationId": "purge_conversations_v1_projects__project_id__conversations_purge_post",
+        "operationId": "post_v1_projects_project_id_conversations_purge",
         "parameters": [
           {
             "in": "path",
@@ -9118,7 +9118,7 @@
     },
     "/v1/projects/{project_id}/conversations/{thread_id}": {
       "get": {
-        "operationId": "get_conversation_v1_projects__project_id__conversations__thread_id__get",
+        "operationId": "get_v1_projects_project_id_conversations_thread_id",
         "parameters": [
           {
             "in": "path",
@@ -9170,7 +9170,7 @@
     "/v1/projects/{project_id}/counts": {
       "get": {
         "description": "Lightweight per-resource counts for the project sidebar badges\n({workflows, agents, tools, components, knowledge, auth}).",
-        "operationId": "project_counts_v1_projects__project_id__counts_get",
+        "operationId": "get_v1_projects_project_id_counts",
         "parameters": [
           {
             "in": "path",
@@ -9212,7 +9212,7 @@
     },
     "/v1/projects/{project_id}/datasets": {
       "get": {
-        "operationId": "list_datasets_v1_projects__project_id__datasets_get",
+        "operationId": "get_v1_projects_project_id_datasets",
         "parameters": [
           {
             "in": "path",
@@ -9250,7 +9250,7 @@
         ]
       },
       "post": {
-        "operationId": "create_dataset_v1_projects__project_id__datasets_post",
+        "operationId": "post_v1_projects_project_id_datasets",
         "parameters": [
           {
             "in": "path",
@@ -9300,7 +9300,7 @@
     },
     "/v1/projects/{project_id}/datasets/{dataset_id}": {
       "delete": {
-        "operationId": "delete_dataset_v1_projects__project_id__datasets__dataset_id__delete",
+        "operationId": "delete_v1_projects_project_id_datasets_dataset_id",
         "parameters": [
           {
             "in": "path",
@@ -9347,7 +9347,7 @@
         ]
       },
       "patch": {
-        "operationId": "update_dataset_v1_projects__project_id__datasets__dataset_id__patch",
+        "operationId": "patch_v1_projects_project_id_datasets_dataset_id",
         "parameters": [
           {
             "in": "path",
@@ -9406,7 +9406,7 @@
     },
     "/v1/projects/{project_id}/datasets/{dataset_id}/run": {
       "post": {
-        "operationId": "run_dataset_v1_projects__project_id__datasets__dataset_id__run_post",
+        "operationId": "post_v1_projects_project_id_datasets_dataset_id_run",
         "parameters": [
           {
             "in": "path",
@@ -9473,7 +9473,7 @@
     "/v1/projects/{project_id}/datasets/{dataset_id}/run/stream": {
       "post": {
         "description": "Same as /run, but streams SSE frames (start / item / done / error) so the console can\nrender every case immediately and update each row live as its run finishes.",
-        "operationId": "run_dataset_stream_v1_projects__project_id__datasets__dataset_id__run_stream_post",
+        "operationId": "post_v1_projects_project_id_datasets_dataset_id_run_stream",
         "parameters": [
           {
             "in": "path",
@@ -9540,7 +9540,7 @@
     "/v1/projects/{project_id}/datasets/{dataset_id}/runs": {
       "get": {
         "description": "Persisted eval-run history for a dataset (newest first) - quality trend + regression view.",
-        "operationId": "list_eval_runs_v1_projects__project_id__datasets__dataset_id__runs_get",
+        "operationId": "get_v1_projects_project_id_datasets_dataset_id_runs",
         "parameters": [
           {
             "in": "path",
@@ -9590,7 +9590,7 @@
     "/v1/projects/{project_id}/datasets/{dataset_id}/runs/{eval_run_id}/results": {
       "get": {
         "description": "Per-item outcomes for one persisted eval run (for per-example diffing).",
-        "operationId": "list_eval_results_v1_projects__project_id__datasets__dataset_id__runs__eval_run_id__results_get",
+        "operationId": "get_v1_projects_project_id_datasets_dataset_id_runs_eval_run_id_results",
         "parameters": [
           {
             "in": "path",
@@ -9648,7 +9648,7 @@
     },
     "/v1/projects/{project_id}/embed": {
       "get": {
-        "operationId": "get_embed_v1_projects__project_id__embed_get",
+        "operationId": "get_v1_projects_project_id_embed",
         "parameters": [
           {
             "in": "path",
@@ -9688,7 +9688,7 @@
         ]
       },
       "put": {
-        "operationId": "set_embed_v1_projects__project_id__embed_put",
+        "operationId": "put_v1_projects_project_id_embed",
         "parameters": [
           {
             "in": "path",
@@ -9740,7 +9740,7 @@
     },
     "/v1/projects/{project_id}/handoffs": {
       "get": {
-        "operationId": "list_handoffs_v1_projects__project_id__handoffs_get",
+        "operationId": "get_v1_projects_project_id_handoffs",
         "parameters": [
           {
             "in": "path",
@@ -9790,7 +9790,7 @@
     },
     "/v1/projects/{project_id}/handoffs/{handoff_id}/reply": {
       "post": {
-        "operationId": "reply_handoff_v1_projects__project_id__handoffs__handoff_id__reply_post",
+        "operationId": "post_v1_projects_project_id_handoffs_handoff_id_reply",
         "parameters": [
           {
             "in": "path",
@@ -9850,7 +9850,7 @@
     "/v1/projects/{project_id}/knowledge/chunk": {
       "get": {
         "description": "Full text (+ light metadata) of a single chunk, fetched on demand when a dot is selected\nin the chunk map (the map payload carries only a short preview). Scoped to the tenant/project.\n404 when the id isn't in this project's current-embedder collection.",
-        "operationId": "chunk_detail_v1_projects__project_id__knowledge_chunk_get",
+        "operationId": "get_v1_projects_project_id_knowledge_chunk",
         "parameters": [
           {
             "in": "path",
@@ -9900,7 +9900,7 @@
     "/v1/projects/{project_id}/knowledge/dedupe": {
       "post": {
         "description": "Remove exact-duplicate chunks (identical text) project-wide, keeping one copy of each.\nReturns {removed, groups, sources_affected, remaining}.",
-        "operationId": "dedupe_chunks_v1_projects__project_id__knowledge_dedupe_post",
+        "operationId": "post_v1_projects_project_id_knowledge_dedupe",
         "parameters": [
           {
             "in": "path",
@@ -9940,7 +9940,7 @@
     },
     "/v1/projects/{project_id}/knowledge/folders": {
       "get": {
-        "operationId": "list_folders_v1_projects__project_id__knowledge_folders_get",
+        "operationId": "get_v1_projects_project_id_knowledge_folders",
         "parameters": [
           {
             "in": "path",
@@ -9987,7 +9987,7 @@
     "/v1/projects/{project_id}/knowledge/health": {
       "get": {
         "description": "Embedding-dimension health: flags sources embedded with a different model than the\nproject's current embedder (which would silently return no search results).",
-        "operationId": "embedding_health_v1_projects__project_id__knowledge_health_get",
+        "operationId": "get_v1_projects_project_id_knowledge_health",
         "parameters": [
           {
             "in": "path",
@@ -10028,7 +10028,7 @@
     "/v1/projects/{project_id}/knowledge/map": {
       "post": {
         "description": "Chunk-map visualizer: 2-D (PCA) projection of the project's chunk vectors, colored by\nsource, with an optional query overlay showing what retrieval returns. Read-only.",
-        "operationId": "chunk_map_v1_projects__project_id__knowledge_map_post",
+        "operationId": "post_v1_projects_project_id_knowledge_map",
         "parameters": [
           {
             "in": "path",
@@ -10078,7 +10078,7 @@
     },
     "/v1/projects/{project_id}/knowledge/search": {
       "post": {
-        "operationId": "search_v1_projects__project_id__knowledge_search_post",
+        "operationId": "post_v1_projects_project_id_knowledge_search",
         "parameters": [
           {
             "in": "path",
@@ -10128,7 +10128,7 @@
     },
     "/v1/projects/{project_id}/knowledge/sources": {
       "get": {
-        "operationId": "list_sources_v1_projects__project_id__knowledge_sources_get",
+        "operationId": "get_v1_projects_project_id_knowledge_sources",
         "parameters": [
           {
             "in": "path",
@@ -10172,7 +10172,7 @@
         ]
       },
       "post": {
-        "operationId": "add_source_v1_projects__project_id__knowledge_sources_post",
+        "operationId": "post_v1_projects_project_id_knowledge_sources",
         "parameters": [
           {
             "in": "path",
@@ -10225,7 +10225,7 @@
     "/v1/projects/{project_id}/knowledge/sources/rechunk": {
       "post": {
         "description": "Re-chunk a multi-selected set of sources with one shared set of overrides\n(strategy / size / overlap), then re-embed each (in the background). Tenant/project-scoped.",
-        "operationId": "rechunk_sources_v1_projects__project_id__knowledge_sources_rechunk_post",
+        "operationId": "post_v1_projects_project_id_knowledge_sources_rechunk",
         "parameters": [
           {
             "in": "path",
@@ -10276,7 +10276,7 @@
     "/v1/projects/{project_id}/knowledge/sources/upload": {
       "post": {
         "description": "Upload a document file (.txt/.md/.pdf and other text formats) into the knowledge base.",
-        "operationId": "upload_source_v1_projects__project_id__knowledge_sources_upload_post",
+        "operationId": "post_v1_projects_project_id_knowledge_sources_upload",
         "parameters": [
           {
             "in": "path",
@@ -10328,7 +10328,7 @@
     },
     "/v1/projects/{project_id}/knowledge/sources/{source_id}": {
       "delete": {
-        "operationId": "delete_source_v1_projects__project_id__knowledge_sources__source_id__delete",
+        "operationId": "delete_v1_projects_project_id_knowledge_sources_source_id",
         "parameters": [
           {
             "in": "path",
@@ -10371,7 +10371,7 @@
       },
       "patch": {
         "description": "Move a source between folders (the only mutable field; content requires re-ingest).\nNot snapshotted: a folder move is minor bookkeeping, not an add/remove worth logging.",
-        "operationId": "update_source_v1_projects__project_id__knowledge_sources__source_id__patch",
+        "operationId": "patch_v1_projects_project_id_knowledge_sources_source_id",
         "parameters": [
           {
             "in": "path",
@@ -10435,7 +10435,7 @@
     "/v1/projects/{project_id}/knowledge/sources/{source_id}/reingest": {
       "post": {
         "description": "Re-fetch + re-embed a source (re-crawl a site, or re-embed under the current model).\nAn optional body overrides the chunking (strategy / size / overlap) before re-ingest.",
-        "operationId": "reingest_source_v1_projects__project_id__knowledge_sources__source_id__reingest_post",
+        "operationId": "post_v1_projects_project_id_knowledge_sources_source_id_reingest",
         "parameters": [
           {
             "in": "path",
@@ -10501,7 +10501,7 @@
     },
     "/v1/projects/{project_id}/mcp-clients": {
       "get": {
-        "operationId": "list_clients_v1_projects__project_id__mcp_clients_get",
+        "operationId": "get_v1_projects_project_id_mcp_clients",
         "parameters": [
           {
             "in": "path",
@@ -10539,7 +10539,7 @@
         ]
       },
       "post": {
-        "operationId": "create_client_v1_projects__project_id__mcp_clients_post",
+        "operationId": "post_v1_projects_project_id_mcp_clients",
         "parameters": [
           {
             "in": "path",
@@ -10589,7 +10589,7 @@
     },
     "/v1/projects/{project_id}/mcp-clients/{client_id}": {
       "delete": {
-        "operationId": "delete_client_v1_projects__project_id__mcp_clients__client_id__delete",
+        "operationId": "delete_v1_projects_project_id_mcp_clients_client_id",
         "parameters": [
           {
             "in": "path",
@@ -10636,7 +10636,7 @@
         ]
       },
       "patch": {
-        "operationId": "update_client_v1_projects__project_id__mcp_clients__client_id__patch",
+        "operationId": "patch_v1_projects_project_id_mcp_clients_client_id",
         "parameters": [
           {
             "in": "path",
@@ -10696,7 +10696,7 @@
     "/v1/projects/{project_id}/mcp-clients/{client_id}/tools": {
       "get": {
         "description": "Connect to the server and list the tools it exposes - drives the 'pick which to add' UI.",
-        "operationId": "list_remote_tools_v1_projects__project_id__mcp_clients__client_id__tools_get",
+        "operationId": "get_v1_projects_project_id_mcp_clients_client_id_tools",
         "parameters": [
           {
             "in": "path",
@@ -10745,7 +10745,7 @@
     },
     "/v1/projects/{project_id}/mcp-tokens": {
       "get": {
-        "operationId": "list_mcp_tokens_v1_projects__project_id__mcp_tokens_get",
+        "operationId": "get_v1_projects_project_id_mcp_tokens",
         "parameters": [
           {
             "in": "path",
@@ -10789,7 +10789,7 @@
         ]
       },
       "post": {
-        "operationId": "create_mcp_token_v1_projects__project_id__mcp_tokens_post",
+        "operationId": "post_v1_projects_project_id_mcp_tokens",
         "parameters": [
           {
             "in": "path",
@@ -10841,7 +10841,7 @@
     },
     "/v1/projects/{project_id}/mcp-tokens/{token_id}": {
       "delete": {
-        "operationId": "revoke_mcp_token_v1_projects__project_id__mcp_tokens__token_id__delete",
+        "operationId": "delete_v1_projects_project_id_mcp_tokens_token_id",
         "parameters": [
           {
             "in": "path",
@@ -10885,7 +10885,7 @@
     },
     "/v1/projects/{project_id}/members": {
       "get": {
-        "operationId": "list_project_members_v1_projects__project_id__members_get",
+        "operationId": "get_v1_projects_project_id_members",
         "parameters": [
           {
             "in": "path",
@@ -10925,7 +10925,7 @@
     },
     "/v1/projects/{project_id}/members/{user_id}": {
       "delete": {
-        "operationId": "remove_project_member_v1_projects__project_id__members__user_id__delete",
+        "operationId": "delete_v1_projects_project_id_members_user_id",
         "parameters": [
           {
             "in": "path",
@@ -10968,7 +10968,7 @@
       },
       "put": {
         "description": "Grant/update a user's role ON THIS PROJECT. Elevates their tenant-wide role for this\nproject only (never demotes it - see deps.effective_role).",
-        "operationId": "set_project_member_v1_projects__project_id__members__user_id__put",
+        "operationId": "put_v1_projects_project_id_members_user_id",
         "parameters": [
           {
             "in": "path",
@@ -11027,7 +11027,7 @@
     },
     "/v1/projects/{project_id}/qa-pairs": {
       "get": {
-        "operationId": "list_qa_v1_projects__project_id__qa_pairs_get",
+        "operationId": "get_v1_projects_project_id_qa_pairs",
         "parameters": [
           {
             "in": "path",
@@ -11071,7 +11071,7 @@
         ]
       },
       "post": {
-        "operationId": "add_qa_v1_projects__project_id__qa_pairs_post",
+        "operationId": "post_v1_projects_project_id_qa_pairs",
         "parameters": [
           {
             "in": "path",
@@ -11123,7 +11123,7 @@
     },
     "/v1/projects/{project_id}/qa-pairs/kinds": {
       "get": {
-        "operationId": "list_qa_kinds_v1_projects__project_id__qa_pairs_kinds_get",
+        "operationId": "get_v1_projects_project_id_qa_pairs_kinds",
         "parameters": [
           {
             "in": "path",
@@ -11169,7 +11169,7 @@
     },
     "/v1/projects/{project_id}/qa-pairs/{qa_id}": {
       "delete": {
-        "operationId": "delete_qa_v1_projects__project_id__qa_pairs__qa_id__delete",
+        "operationId": "delete_v1_projects_project_id_qa_pairs_qa_id",
         "parameters": [
           {
             "in": "path",
@@ -11211,7 +11211,7 @@
         ]
       },
       "patch": {
-        "operationId": "update_qa_v1_projects__project_id__qa_pairs__qa_id__patch",
+        "operationId": "patch_v1_projects_project_id_qa_pairs_qa_id",
         "parameters": [
           {
             "in": "path",
@@ -11272,7 +11272,7 @@
     },
     "/v1/projects/{project_id}/run": {
       "post": {
-        "operationId": "project_run_v1_projects__project_id__run_post",
+        "operationId": "post_v1_projects_project_id_run",
         "parameters": [
           {
             "in": "path",
@@ -11338,7 +11338,7 @@
     },
     "/v1/projects/{project_id}/secrets": {
       "get": {
-        "operationId": "list_secrets_v1_projects__project_id__secrets_get",
+        "operationId": "get_v1_projects_project_id_secrets",
         "parameters": [
           {
             "in": "path",
@@ -11382,7 +11382,7 @@
         ]
       },
       "post": {
-        "operationId": "create_secret_v1_projects__project_id__secrets_post",
+        "operationId": "post_v1_projects_project_id_secrets",
         "parameters": [
           {
             "in": "path",
@@ -11434,7 +11434,7 @@
     },
     "/v1/projects/{project_id}/secrets/{name}": {
       "delete": {
-        "operationId": "delete_secret_v1_projects__project_id__secrets__name__delete",
+        "operationId": "delete_v1_projects_project_id_secrets_name",
         "parameters": [
           {
             "in": "path",
@@ -11488,7 +11488,7 @@
     },
     "/v1/projects/{project_id}/secrets/{name}/usage": {
       "get": {
-        "operationId": "secret_usage_v1_projects__project_id__secrets__name__usage_get",
+        "operationId": "get_v1_projects_project_id_secrets_name_usage",
         "parameters": [
           {
             "in": "path",
@@ -11537,7 +11537,7 @@
     },
     "/v1/projects/{project_id}/session-tokens": {
       "post": {
-        "operationId": "mint_session_token_v1_projects__project_id__session_tokens_post",
+        "operationId": "post_v1_projects_project_id_session_tokens",
         "parameters": [
           {
             "in": "path",
@@ -11589,7 +11589,7 @@
     },
     "/v1/projects/{project_id}/tool-sets": {
       "get": {
-        "operationId": "list_tool_sets_v1_projects__project_id__tool_sets_get",
+        "operationId": "get_v1_projects_project_id_tool_sets",
         "parameters": [
           {
             "in": "path",
@@ -11633,7 +11633,7 @@
         ]
       },
       "post": {
-        "operationId": "create_tool_set_v1_projects__project_id__tool_sets_post",
+        "operationId": "post_v1_projects_project_id_tool_sets",
         "parameters": [
           {
             "in": "path",
@@ -11685,7 +11685,7 @@
     },
     "/v1/projects/{project_id}/tool-sets/{set_id}": {
       "delete": {
-        "operationId": "delete_tool_set_v1_projects__project_id__tool_sets__set_id__delete",
+        "operationId": "delete_v1_projects_project_id_tool_sets_set_id",
         "parameters": [
           {
             "in": "path",
@@ -11727,7 +11727,7 @@
         ]
       },
       "get": {
-        "operationId": "get_tool_set_v1_projects__project_id__tool_sets__set_id__get",
+        "operationId": "get_v1_projects_project_id_tool_sets_set_id",
         "parameters": [
           {
             "in": "path",
@@ -11776,7 +11776,7 @@
         ]
       },
       "patch": {
-        "operationId": "update_tool_set_v1_projects__project_id__tool_sets__set_id__patch",
+        "operationId": "patch_v1_projects_project_id_tool_sets_set_id",
         "parameters": [
           {
             "in": "path",
@@ -11837,7 +11837,7 @@
     },
     "/v1/projects/{project_id}/tool-sets/{set_id}/tools/{tool_id}": {
       "delete": {
-        "operationId": "remove_tool_from_set_v1_projects__project_id__tool_sets__set_id__tools__tool_id__delete",
+        "operationId": "delete_v1_projects_project_id_tool_sets_set_id_tools_tool_id",
         "parameters": [
           {
             "in": "path",
@@ -11888,7 +11888,7 @@
         ]
       },
       "post": {
-        "operationId": "add_tool_to_set_v1_projects__project_id__tool_sets__set_id__tools__tool_id__post",
+        "operationId": "post_v1_projects_project_id_tool_sets_set_id_tools_tool_id",
         "parameters": [
           {
             "in": "path",
@@ -11941,7 +11941,7 @@
     },
     "/v1/projects/{project_id}/tools": {
       "get": {
-        "operationId": "list_tools_v1_projects__project_id__tools_get",
+        "operationId": "get_v1_projects_project_id_tools",
         "parameters": [
           {
             "in": "path",
@@ -11985,7 +11985,7 @@
         ]
       },
       "post": {
-        "operationId": "create_tool_v1_projects__project_id__tools_post",
+        "operationId": "post_v1_projects_project_id_tools",
         "parameters": [
           {
             "in": "path",
@@ -12038,7 +12038,7 @@
     "/v1/projects/{project_id}/tools/export": {
       "post": {
         "description": "Serialize the selected tools into a downloadable single-type bundle.",
-        "operationId": "export_tools_v1_projects__project_id__tools_export_post",
+        "operationId": "post_v1_projects_project_id_tools_export",
         "parameters": [
           {
             "in": "path",
@@ -12089,7 +12089,7 @@
     "/v1/projects/{project_id}/tools/import": {
       "post": {
         "description": "Create tools from an uploaded bundle in THIS project (new ids, auto-renamed on collision).",
-        "operationId": "import_tools_v1_projects__project_id__tools_import_post",
+        "operationId": "post_v1_projects_project_id_tools_import",
         "parameters": [
           {
             "in": "path",
@@ -12141,7 +12141,7 @@
     },
     "/v1/projects/{project_id}/tools/{tool_id}": {
       "delete": {
-        "operationId": "delete_tool_v1_projects__project_id__tools__tool_id__delete",
+        "operationId": "delete_v1_projects_project_id_tools_tool_id",
         "parameters": [
           {
             "in": "path",
@@ -12183,7 +12183,7 @@
         ]
       },
       "get": {
-        "operationId": "get_tool_v1_projects__project_id__tools__tool_id__get",
+        "operationId": "get_v1_projects_project_id_tools_tool_id",
         "parameters": [
           {
             "in": "path",
@@ -12232,7 +12232,7 @@
         ]
       },
       "patch": {
-        "operationId": "update_tool_v1_projects__project_id__tools__tool_id__patch",
+        "operationId": "patch_v1_projects_project_id_tools_tool_id",
         "parameters": [
           {
             "in": "path",
@@ -12293,7 +12293,7 @@
     },
     "/v1/projects/{project_id}/tools/{tool_id}/test": {
       "post": {
-        "operationId": "test_tool_v1_projects__project_id__tools__tool_id__test_post",
+        "operationId": "post_v1_projects_project_id_tools_tool_id_test",
         "parameters": [
           {
             "in": "path",
@@ -12352,7 +12352,7 @@
     },
     "/v1/projects/{project_id}/traces": {
       "get": {
-        "operationId": "list_traces_v1_projects__project_id__traces_get",
+        "operationId": "get_v1_projects_project_id_traces",
         "parameters": [
           {
             "in": "path",
@@ -12398,7 +12398,7 @@
     },
     "/v1/projects/{project_id}/traces/{trace_id}": {
       "get": {
-        "operationId": "get_trace_v1_projects__project_id__traces__trace_id__get",
+        "operationId": "get_v1_projects_project_id_traces_trace_id",
         "parameters": [
           {
             "in": "path",
@@ -12449,7 +12449,7 @@
     },
     "/v1/projects/{project_id}/triggers": {
       "get": {
-        "operationId": "list_triggers_v1_projects__project_id__triggers_get",
+        "operationId": "get_v1_projects_project_id_triggers",
         "parameters": [
           {
             "in": "path",
@@ -12489,7 +12489,7 @@
     },
     "/v1/projects/{project_id}/workflows": {
       "get": {
-        "operationId": "list_workflows_v1_projects__project_id__workflows_get",
+        "operationId": "get_v1_projects_project_id_workflows",
         "parameters": [
           {
             "in": "path",
@@ -12533,7 +12533,7 @@
         ]
       },
       "post": {
-        "operationId": "create_workflow_v1_projects__project_id__workflows_post",
+        "operationId": "post_v1_projects_project_id_workflows",
         "parameters": [
           {
             "in": "path",
@@ -12586,7 +12586,7 @@
     "/v1/projects/{project_id}/workflows/export": {
       "post": {
         "description": "Serialize the selected workflows (canvas + executable) into a downloadable bundle.",
-        "operationId": "export_workflows_v1_projects__project_id__workflows_export_post",
+        "operationId": "post_v1_projects_project_id_workflows_export",
         "parameters": [
           {
             "in": "path",
@@ -12637,7 +12637,7 @@
     "/v1/projects/{project_id}/workflows/import": {
       "post": {
         "description": "Create workflows from an uploaded bundle in THIS project (imported as drafts).",
-        "operationId": "import_workflows_v1_projects__project_id__workflows_import_post",
+        "operationId": "post_v1_projects_project_id_workflows_import",
         "parameters": [
           {
             "in": "path",
@@ -12689,7 +12689,7 @@
     },
     "/v1/projects/{project_id}/workflows/validate": {
       "post": {
-        "operationId": "validate_executable_v1_projects__project_id__workflows_validate_post",
+        "operationId": "post_v1_projects_project_id_workflows_validate",
         "parameters": [
           {
             "in": "path",
@@ -12741,7 +12741,7 @@
     },
     "/v1/projects/{project_id}/workflows/{workflow_id}": {
       "delete": {
-        "operationId": "delete_workflow_v1_projects__project_id__workflows__workflow_id__delete",
+        "operationId": "delete_v1_projects_project_id_workflows_workflow_id",
         "parameters": [
           {
             "in": "path",
@@ -12783,7 +12783,7 @@
         ]
       },
       "get": {
-        "operationId": "get_workflow_v1_projects__project_id__workflows__workflow_id__get",
+        "operationId": "get_v1_projects_project_id_workflows_workflow_id",
         "parameters": [
           {
             "in": "path",
@@ -12832,7 +12832,7 @@
         ]
       },
       "patch": {
-        "operationId": "update_workflow_v1_projects__project_id__workflows__workflow_id__patch",
+        "operationId": "patch_v1_projects_project_id_workflows_workflow_id",
         "parameters": [
           {
             "in": "path",
@@ -12893,7 +12893,7 @@
     },
     "/v1/projects/{project_id}/workflows/{workflow_id}/canvas": {
       "put": {
-        "operationId": "save_canvas_v1_projects__project_id__workflows__workflow_id__canvas_put",
+        "operationId": "put_v1_projects_project_id_workflows_workflow_id_canvas",
         "parameters": [
           {
             "in": "path",
@@ -12954,7 +12954,7 @@
     },
     "/v1/projects/{project_id}/workflows/{workflow_id}/executable": {
       "put": {
-        "operationId": "update_executable_v1_projects__project_id__workflows__workflow_id__executable_put",
+        "operationId": "put_v1_projects_project_id_workflows_workflow_id_executable",
         "parameters": [
           {
             "in": "path",
@@ -13016,7 +13016,7 @@
     "/v1/projects/{project_id}/workflows/{workflow_id}/publish": {
       "post": {
         "description": "Validate the stored executable and mark the workflow active (a published version).",
-        "operationId": "publish_workflow_v1_projects__project_id__workflows__workflow_id__publish_post",
+        "operationId": "post_v1_projects_project_id_workflows_workflow_id_publish",
         "parameters": [
           {
             "in": "path",
@@ -13067,7 +13067,7 @@
     },
     "/v1/projects/{project_id}/workflows/{workflow_id}/runs": {
       "post": {
-        "operationId": "create_run_v1_projects__project_id__workflows__workflow_id__runs_post",
+        "operationId": "post_v1_projects_project_id_workflows_workflow_id_runs",
         "parameters": [
           {
             "in": "path",
@@ -13145,7 +13145,7 @@
     "/v1/projects/{project_id}/workflows/{workflow_id}/runs/{run_id}/cancel": {
       "post": {
         "description": "Cancel a run: mark it canceled and cooperatively stop it (frees the tenant-concurrency\nslot). A terminal run (done/error/canceled) returns ok=False with its current status.",
-        "operationId": "cancel_run_v1_projects__project_id__workflows__workflow_id__runs__run_id__cancel_post",
+        "operationId": "post_v1_projects_project_id_workflows_workflow_id_runs_run_id_cancel",
         "parameters": [
           {
             "in": "path",
@@ -13204,7 +13204,7 @@
     "/v1/projects/{project_id}/workflows/{workflow_id}/runs/{run_id}/rerun": {
       "post": {
         "description": "Replay a past run: create a new run with the same input (fresh thread).",
-        "operationId": "rerun_v1_projects__project_id__workflows__workflow_id__runs__run_id__rerun_post",
+        "operationId": "post_v1_projects_project_id_workflows_workflow_id_runs_run_id_rerun",
         "parameters": [
           {
             "in": "path",
@@ -13264,7 +13264,7 @@
     },
     "/v1/projects/{project_id}/workflows/{workflow_id}/runs/{run_id}/resume": {
       "post": {
-        "operationId": "resume_run_v1_projects__project_id__workflows__workflow_id__runs__run_id__resume_post",
+        "operationId": "post_v1_projects_project_id_workflows_workflow_id_runs_run_id_resume",
         "parameters": [
           {
             "in": "path",
@@ -13333,7 +13333,7 @@
     "/v1/projects/{project_id}/workflows/{workflow_id}/runs/{run_id}/retry": {
       "post": {
         "description": "Operator retry of a terminal run (A/C11). `mode=resume` continues from the last checkpoint\n(409 if there is nothing to resume); `mode=restart` creates a fresh run on the current\npublished version. Editor+ only; not exposed on the public/embed surface. Audit-logged.",
-        "operationId": "retry_run_v1_projects__project_id__workflows__workflow_id__runs__run_id__retry_post",
+        "operationId": "post_v1_projects_project_id_workflows_workflow_id_runs_run_id_retry",
         "parameters": [
           {
             "in": "path",
@@ -13401,7 +13401,7 @@
     },
     "/v1/projects/{project_id}/workflows/{workflow_id}/runs/{run_id}/stream": {
       "get": {
-        "operationId": "stream_run_v1_projects__project_id__workflows__workflow_id__runs__run_id__stream_get",
+        "operationId": "get_v1_projects_project_id_workflows_workflow_id_runs_run_id_stream",
         "parameters": [
           {
             "in": "path",
@@ -13475,7 +13475,7 @@
     },
     "/v1/stats/dashboard": {
       "get": {
-        "operationId": "dashboard_v1_stats_dashboard_get",
+        "operationId": "get_v1_stats_dashboard",
         "responses": {
           "200": {
             "content": {
@@ -13497,7 +13497,7 @@
     "/v1/stats/projects/{project_id}": {
       "get": {
         "description": "Project-scoped rollups + report rows (per workflow + ROS Assistant).",
-        "operationId": "project_stats_v1_stats_projects__project_id__get",
+        "operationId": "get_v1_stats_projects_project_id",
         "parameters": [
           {
             "in": "path",
@@ -13540,7 +13540,7 @@
     "/v1/stats/projects/{project_id}/analytics": {
       "get": {
         "description": "Time-series + breakdowns for the project Analytics dashboard, over the last `days`.\n\nEverything is a grouped SQL aggregate (daily buckets, per-source, per-workflow, and\nper-tool/per-model spans) so a dashboard load returns a bounded number of rows no matter\nhow large the trace history is. The previous equal-length window is rolled up too, so the\nUI can show period-over-period deltas on each KPI.",
-        "operationId": "project_analytics_v1_stats_projects__project_id__analytics_get",
+        "operationId": "get_v1_stats_projects_project_id_analytics",
         "parameters": [
           {
             "in": "path",
@@ -13592,7 +13592,7 @@
     },
     "/v1/team/members": {
       "get": {
-        "operationId": "list_members_v1_team_members_get",
+        "operationId": "get_v1_team_members",
         "responses": {
           "200": {
             "content": {
@@ -13609,7 +13609,7 @@
         ]
       },
       "post": {
-        "operationId": "invite_member_v1_team_members_post",
+        "operationId": "post_v1_team_members",
         "requestBody": {
           "content": {
             "application/json": {
@@ -13648,7 +13648,7 @@
     },
     "/v1/team/members/{user_id}": {
       "delete": {
-        "operationId": "deactivate_member_v1_team_members__user_id__delete",
+        "operationId": "delete_v1_team_members_user_id",
         "parameters": [
           {
             "in": "path",
@@ -13686,7 +13686,7 @@
         ]
       },
       "patch": {
-        "operationId": "update_member_v1_team_members__user_id__patch",
+        "operationId": "patch_v1_team_members_user_id",
         "parameters": [
           {
             "in": "path",
@@ -13737,7 +13737,7 @@
     "/v1/versions/project/{project_id}/activity": {
       "get": {
         "description": "Read-only project-wide activity feed for knowledge sources + Q&A pairs (added / changed /\nremoved), newest first. Powers the Knowledge screen's History button.",
-        "operationId": "project_activity_v1_versions_project__project_id__activity_get",
+        "operationId": "get_v1_versions_project_project_id_activity",
         "parameters": [
           {
             "in": "path",
@@ -13784,7 +13784,7 @@
     "/v1/versions/project/{project_id}/config-history": {
       "get": {
         "description": "Full project snapshots (newest first, incl. the snapshot body) so the Settings > History\nscreen can diff consecutive versions field-by-field per section. Read-only.",
-        "operationId": "project_config_history_v1_versions_project__project_id__config_history_get",
+        "operationId": "get_v1_versions_project_project_id_config_history",
         "parameters": [
           {
             "in": "path",
@@ -13830,7 +13830,7 @@
     },
     "/v1/versions/{entity_type}/{entity_id}": {
       "get": {
-        "operationId": "list_versions_v1_versions__entity_type___entity_id__get",
+        "operationId": "get_v1_versions_entity_type_entity_id",
         "parameters": [
           {
             "in": "path",
@@ -13885,7 +13885,7 @@
     },
     "/v1/versions/{entity_type}/{entity_id}/restore": {
       "post": {
-        "operationId": "restore_version_v1_versions__entity_type___entity_id__restore_post",
+        "operationId": "post_v1_versions_entity_type_entity_id_restore",
         "parameters": [
           {
             "in": "path",
@@ -13946,7 +13946,7 @@
     },
     "/v1/versions/{entity_type}/{entity_id}/{version_no}": {
       "get": {
-        "operationId": "get_version_v1_versions__entity_type___entity_id___version_no__get",
+        "operationId": "get_v1_versions_entity_type_entity_id_version_no",
         "parameters": [
           {
             "in": "path",
@@ -14007,7 +14007,7 @@
     "/v1/workspace": {
       "delete": {
         "description": "Owner-only, name-confirmed, cascading workspace deletion (finding k). Irreversible.",
-        "operationId": "delete_workspace_v1_workspace_delete",
+        "operationId": "delete_v1_workspace",
         "requestBody": {
           "content": {
             "application/json": {
@@ -14039,7 +14039,7 @@
         ]
       },
       "get": {
-        "operationId": "get_workspace_v1_workspace_get",
+        "operationId": "get_v1_workspace",
         "responses": {
           "200": {
             "content": {
@@ -14057,7 +14057,7 @@
       },
       "patch": {
         "description": "Owner-only: rename, change plan, or adjust quota limits (finding k).",
-        "operationId": "update_workspace_v1_workspace_patch",
+        "operationId": "patch_v1_workspace",
         "requestBody": {
           "content": {
             "application/json": {
@@ -14096,7 +14096,7 @@
     },
     "/version": {
       "get": {
-        "operationId": "version_info_version_get",
+        "operationId": "get_version",
         "responses": {
           "200": {
             "content": {
