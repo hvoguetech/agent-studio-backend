@@ -1,9 +1,9 @@
 """A/C12 AC-7 - the open-core separation guard.
 
-The MIT core must import NO cloud/plugin package. Walk the `forge` package source and fail if
+The MIT core must import NO cloud/plugin package. Walk the `ros` package source and fail if
 a forbidden top-level module is imported anywhere. This is the structural guarantee behind the
 open-core split (EPIC D / A/C13): the cloud backends (e.g. the Inngest backend) live in a
-separate proprietary package and are reached only via the `forge.execution_backends`
+separate proprietary package and are reached only via the `ros.execution_backends`
 entry-point, never a direct import from core.
 """
 
@@ -12,8 +12,8 @@ from __future__ import annotations
 import ast
 import pathlib
 
-FORBIDDEN = {"inngest", "forge_execution_inngest"}
-CORE = pathlib.Path(__file__).resolve().parents[1] / "forge"
+FORBIDDEN = {"inngest", "ros_execution_inngest"}
+CORE = pathlib.Path(__file__).resolve().parents[1] / "ros"
 
 
 def _imported_roots(tree: ast.AST):

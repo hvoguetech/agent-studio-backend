@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from forge.db.base import SessionLocal
-from forge.knowledge.crawl import extract_links
-from forge.services.knowledge import KnowledgeService
+from ros.db.base import SessionLocal
+from ros.knowledge.crawl import extract_links
+from ros.services.knowledge import KnowledgeService
 
 
 def test_extract_links_same_domain_only():
@@ -26,7 +26,7 @@ def test_extract_links_same_domain_only():
 async def test_reingest_text_source_reembeds():
     async with SessionLocal() as s:
         src = await KnowledgeService.create_source(s, "t_re", "p_re", kind="text", name="doc",
-                                                   text="Forge supports website crawling and re-ingest now.")
+                                                   text="ROS supports website crawling and re-ingest now.")
         src = await KnowledgeService.ingest(s, src)
         assert src.status == "ready" and src.chunks >= 1
         src2 = await KnowledgeService.reingest(s, src)

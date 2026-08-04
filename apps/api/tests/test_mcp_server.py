@@ -1,16 +1,16 @@
-"""Forge-as-an-MCP-server: initialize / tools/list / tools/call over JSON-RPC."""
+"""ROS-as-an-MCP-server: initialize / tools/list / tools/call over JSON-RPC."""
 
 from __future__ import annotations
 
 import httpx
 
-from forge.db.base import SessionLocal
-from forge.main import create_app
-from forge.models import Project, Tool
+from ros.db.base import SessionLocal
+from ros.main import create_app
+from ros.models import Project, Tool
 
 
 async def _seed_project_with_tool(slug="mcp-proj") -> str:
-    from forge.services.tool_sets import ToolSetService
+    from ros.services.tool_sets import ToolSetService
 
     async with SessionLocal() as s:
         proj = Project(tenant_id="t_mcps", name="MCP Proj", slug=slug, config={})
@@ -33,7 +33,7 @@ async def test_mcp_initialize_and_list_and_call():
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
         # initialize
         r = await c.post(f"/v1/mcp/{pid}", json={"jsonrpc": "2.0", "id": 1, "method": "initialize"})
-        assert r.status_code == 200 and r.json()["result"]["serverInfo"]["name"].startswith("forge-")
+        assert r.status_code == 200 and r.json()["result"]["serverInfo"]["name"].startswith("ros-")
 
         # tools/list exposes the project's tools
         r = await c.post(f"/v1/mcp/{pid}", json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"})

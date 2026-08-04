@@ -1,6 +1,6 @@
-# Forge - User Manual
+# ROS - User Manual
 
-Forge is a self‑hosted platform for **building, testing, and shipping AI agents and
+ROS is a self‑hosted platform for **building, testing, and shipping AI agents and
 workflows** - visually, without writing framework code. You wire together nodes (agents,
 tools, knowledge, logic) on a canvas, ground them in your own data, connect them to your
 systems, and deploy them to email, an API, an MCP server, or an embeddable web widget. It
@@ -14,8 +14,8 @@ This manual is written for **everyone** - you don't need to be a developer to fo
 ## 1. Getting started
 
 ### Logging in
-When you open Forge you'll see a **login screen**.
-- **Dev / first run:** sign in with **`you@forge.local`** / **`forge-admin`**, or click
+When you open ROS you'll see a **login screen**.
+- **Dev / first run:** sign in with **`you@ros.local`** / **`ros-admin`**, or click
   *Create a workspace* to register a fresh account.
 - Need teammates? Open **Settings → Members & Roles** to invite them (owner / admin / editor / viewer / connector roles).
 
@@ -25,7 +25,7 @@ knowledge, and settings live together and are isolated from other projects.
 
 1. Click **New project**, give it a name.
 2. (Recommended) Open **Settings → API Keys** and paste an OpenAI / Anthropic / Google key
-   under **Model providers**. Until you do, Forge uses an offline “fake” model so you can
+   under **Model providers**. Until you do, ROS uses an offline “fake” model so you can
    build and test the *plumbing* without spending anything - but answers won't be real.
 3. Pick a **Default model** under **Settings → General** (e.g. `openai:gpt-4.1-mini`).
 
@@ -112,7 +112,7 @@ live; **Run** (or the Playground) to test.
 | **Email** | Mail arrives in the connected mailbox (configure an Email **channel**). | `mailbox`, `reply` |
 | **App Event** | Polling a URL returns a **new** item (deduped) - turns any feed into events. | `poll_url`, `interval_minutes`, `items_path`, `dedupe_key` |
 
-> **Error fallback:** set a workflow's `on_error.message` (via the Forge Assistant) to send a
+> **Error fallback:** set a workflow's `on_error.message` (via the ROS Assistant) to send a
 > graceful reply when a run fails instead of erroring silently.
 
 ---
@@ -136,7 +136,7 @@ sit pinned at the top of the Tools screen, **can't be deleted** (disable instead
 in import/export bundles — so importing a project neither duplicates nor loses them.
 
 **Per‑environment endpoints (`{{env.*}}`):** a REST URL / GraphQL endpoint (or an auth template)
-can reference `{{env.<key>}}`, resolved from the `FORGE_TOOL_VARS` JSON map set per deploy — so the
+can reference `{{env.<key>}}`, resolved from the `ROS_TOOL_VARS` JSON map set per deploy — so the
 **same** tool row points at your dev / qa / prod host without editing it. A referenced key that
 isn't defined **fails the call loudly** (never a broken URL). (`{{ctx.*}}` per‑run values stay
 lenient — a missing one renders empty.)
@@ -170,12 +170,12 @@ referenced (never pasted into config) as `secret://proj/<name>` - set the values
 | **API key** | A key in a header or query param. |
 | **Basic** | username/password. |
 | **OAuth2 client‑creds** | Machine‑to‑machine token from a token URL. |
-| **OAuth2 (user login)** | 3‑legged OAuth: click **Connect**, grant access in the popup; Forge stores + **auto‑refreshes** tokens. Use for Google/HubSpot/Notion‑style user auth. |
+| **OAuth2 (user login)** | 3‑legged OAuth: click **Connect**, grant access in the popup; ROS stores + **auto‑refreshes** tokens. Use for Google/HubSpot/Notion‑style user auth. |
 | **CSRF + session** | Log in, extract a CSRF/session token, inject it on each call. |
 
 **Per‑user connected credentials:** an OAuth2 (user‑login) provider can key its token bundle
 **per end user** instead of sharing one account. Each end user then links their own downstream
-account on the **Connect** screen (§10, *"Connect your accounts"*), and Forge injects *their*
+account on the **Connect** screen (§10, *"Connect your accounts"*), and ROS injects *their*
 credential when acting on their behalf over MCP or the run API - no token is ever passed through.
 
 ---
@@ -187,7 +187,7 @@ credential when acting on their behalf over MCP or the run API - no token is eve
 - **Add a source:** *Paste text*, a *URL*, *Crawl site* (same‑domain pages), or *Upload file*
   (.txt/.md/.csv/.json/.html/.pdf). Organize with folders.
 - **Re‑ingest (↻)** a source to re‑fetch/re‑crawl or re‑embed under your current model.
-- **Health banner:** if you switch embedding models, Forge flags sources that need
+- **Health banner:** if you switch embedding models, ROS flags sources that need
   re‑embedding (otherwise they'd silently vanish from search) - click **Re‑embed all**.
 - **Use it:** add a **Retrieval** node before an agent (it grounds on documents and/or Q&A
   pairs, each toggleable), or enable **knowledge** directly on an Agent node so it searches
@@ -229,7 +229,7 @@ of you (the launching editor), so per‑user tool auth resolves your connected c
 - **Playground** streams a live **Agent activity** timeline while a run is in flight — which
   sub‑agent (prominent) or tool (dimmed) is running, ticking to done/error as each finishes — and
   attributes the run to you (the signed‑in operator), so per‑user tool auth resolves your credential.
-- **OpenTelemetry** - point `FORGE_OTEL_EXPORTER_OTLP_ENDPOINT` at a collector or Langfuse to export
+- **OpenTelemetry** - point `ROS_OTEL_EXPORTER_OTLP_ENDPOINT` at a collector or Langfuse to export
   run traces (also configurable under Settings → Observability & Retention).
 
 **Settings** is a section sidebar:
@@ -279,14 +279,14 @@ bridge needed.
 Choose how clients authenticate:
 - **Project API key** - one shared key sent as `Authorization: Bearer <key>`. Server‑to‑server, no
   per‑user identity. Generate it on the screen.
-- **Personal access token (PAT)** - a per‑user token (`forge_pat_…`) each teammate generates (and
+- **Personal access token (PAT)** - a per‑user token (`ros_pat_…`) each teammate generates (and
   revokes) for themselves; the server then acts as *that* user (entitlements, `{{ctx.*}}`).
-- **OAuth 2.1** *(optional, off by default)* - when enabled, a standard MCP client discovers Forge
-  and the user logs in, with no pre‑shared key. Turn on with `FORGE_MCP_OAUTH_ENABLED` (review the
+- **OAuth 2.1** *(optional, off by default)* - when enabled, a standard MCP client discovers ROS
+  and the user logs in, with no pre‑shared key. Turn on with `ROS_MCP_OAUTH_ENABLED` (review the
   security notes first).
 
 **Connect your accounts:** if the project has per‑user auth providers (§5), each signed‑in user
-links their own downstream account here so Forge can act on their behalf.
+links their own downstream account here so ROS can act on their behalf.
 
 > **Connector role:** invite integration users as **connector** (Settings → Members & Roles) - the
 > least‑privileged role. They can authenticate, self‑serve an MCP token, and call tools, but see no
@@ -308,7 +308,7 @@ and node names stay private in the dashboard.
 
 Move your build between projects - or share it - as portable JSON **bundles**. On the **Tools**,
 **Workflows**, **Agents**, and **Components** screens, use **Export** (pick items → download a
-`forge.bundle/1` file) and **Import** (upload a bundle into the current project).
+`ros.bundle/1` file) and **Import** (upload a bundle into the current project).
 
 - **What travels:** the entity's full configuration. **Secret *values* never leave** - only
   `secret://…` *references* do, so after importing you recreate those secrets (and any missing auth
@@ -359,17 +359,17 @@ Move your build between projects - or share it - as portable JSON **bundles**. O
 
 ## 13. Going to production
 
-Forge runs locally with **zero external infra** (SQLite + embedded Chroma + in‑process
+ROS runs locally with **zero external infra** (SQLite + embedded Chroma + in‑process
 scheduler). For production, set these and restart (the app **refuses to boot** if they're wrong):
 
-- `FORGE_ENVIRONMENT=production`
-- `FORGE_JWT_SECRET=<strong random>`  ·  `FORGE_AUTH_REQUIRED=true`
-- `FORGE_BOOTSTRAP_ADMIN_PASSWORD=<your own>` (not the dev default)
-- `FORGE_DATABASE_URL=postgresql+psycopg://…` (Postgres), then `alembic upgrade head`
+- `ROS_ENVIRONMENT=production`
+- `ROS_JWT_SECRET=<strong random>`  ·  `ROS_AUTH_REQUIRED=true`
+- `ROS_BOOTSTRAP_ADMIN_PASSWORD=<your own>` (not the dev default)
+- `ROS_DATABASE_URL=postgresql+psycopg://…` (Postgres), then `alembic upgrade head`
   (and optionally apply `infra/postgres_rls.sql` for row‑level tenant isolation)
-- `FORGE_PUBLIC_BASE_URL=https://forge.yourco.com` (OAuth redirects + webhook/channel URLs)
-- Optional: `FORGE_REDIS_URL` (multi‑worker), `FORGE_OTEL_*` (tracing), `FORGE_EGRESS_ALLOW_HOSTS`,
-  `FORGE_MCP_OAUTH_ENABLED=true` (delegated OAuth 2.1 for MCP clients).
+- `ROS_PUBLIC_BASE_URL=https://ros.yourco.com` (OAuth redirects + webhook/channel URLs)
+- Optional: `ROS_REDIS_URL` (multi‑worker), `ROS_OTEL_*` (tracing), `ROS_EGRESS_ALLOW_HOSTS`,
+  `ROS_MCP_OAUTH_ENABLED=true` (delegated OAuth 2.1 for MCP clients).
 
 See `.env.example` for the full, annotated list.
 

@@ -13,17 +13,17 @@ import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 from sqlalchemy import select
 
-from forge.db.base import SessionLocal
-from forge.engine.models import make_fake_model
-from forge.models import Component, Dataset, McpClient, Run, Tenant, Tool, Workflow
-from forge.services.evals import (
+from ros.db.base import SessionLocal
+from ros.engine.models import make_fake_model
+from ros.models import Component, Dataset, McpClient, Run, Tenant, Tool, Workflow
+from ros.services.evals import (
     EvalService,
     _is_real_judge,
     _score_json,
     _score_numeric,
 )
-from forge.services.quota import QuotaExceeded, check_run_quota, usage_today
-from forge.services.runs import RunService
+from ros.services.quota import QuotaExceeded, check_run_quota, usage_today
+from ros.services.runs import RunService
 
 # A workflow whose (offline) agent always answers with "42 dollars" - lets us assert
 # deterministic pass/fail without any provider key.
@@ -128,12 +128,12 @@ async def test_embedding_assertion_unavailable_without_embedder():
 
 
 def test_tracer_filters_internal_chains_and_reparents():
-    from forge.tracing.tracer import ForgeTracer, _is_internal_chain
+    from ros.tracing.tracer import ROSTracer, _is_internal_chain
 
     assert _is_internal_chain("RunnableSequence") and _is_internal_chain("chain") and _is_internal_chain("__start__")
     assert not _is_internal_chain("agent_1") and not _is_internal_chain("support_agent")
 
-    tr = ForgeTracer()
+    tr = ROSTracer()
     tr.on_chain_start({"name": "RunnableSequence"}, {}, run_id="r1", parent_run_id=None)  # skipped
     tr.on_chain_start({"name": "agent_1"}, {}, run_id="r2", parent_run_id="r1")            # kept, re-parented
     tr.on_chat_model_start({}, [], run_id="r3", parent_run_id="r1")                        # kept, re-parented
@@ -145,10 +145,10 @@ def test_tracer_filters_internal_chains_and_reparents():
 
 
 def test_tracer_retriever_and_embedding_spans():
-    from forge.tracing.tracer import ForgeTracer
-    from forge.tracing.tracer import embedding_span as active_embedding_span
+    from ros.tracing.tracer import ROSTracer
+    from ros.tracing.tracer import embedding_span as active_embedding_span
 
-    tr = ForgeTracer()
+    tr = ROSTracer()
     tr.on_retriever_start({"name": "kb"}, "my query", run_id="rr", parent_run_id=None)
     tr.on_retriever_end([{"page_content": "doc one"}, {"page_content": "doc two"}], run_id="rr")
     rspan = tr.spans["rr"]
@@ -211,7 +211,7 @@ async def test_quota_per_project_scoping():
 
 
 async def test_assistant_builds_all_tool_kinds_and_component():
-    from forge.services.assistant import build_assistant_tools
+    from ros.services.assistant import build_assistant_tools
 
     tools = {t.name: t for t in build_assistant_tools("t_ab", "p_ab", [])}
     for name in ("create_graphql_tool", "create_sql_tool", "create_code_tool", "create_mcp_tool", "create_component"):
@@ -231,7 +231,7 @@ async def test_assistant_builds_all_tool_kinds_and_component():
 
 
 async def test_rest_tool_supports_body_query_header_params():
-    from forge.services.assistant import build_assistant_tools
+    from ros.services.assistant import build_assistant_tools
 
     tools = {t.name: t for t in build_assistant_tools("t_rt", "p_rt", [])}
     await tools["create_rest_tool"].ainvoke({
@@ -246,7 +246,7 @@ async def test_rest_tool_supports_body_query_header_params():
 
 
 async def test_evaluate_build_offline_is_unverified():
-    from forge.services.assistant import build_assistant_tools
+    from ros.services.assistant import build_assistant_tools
 
     tools = {t.name: t for t in build_assistant_tools("t_eb", "p_eb", [])}
     out = json.loads(await tools["evaluate_build"].ainvoke(

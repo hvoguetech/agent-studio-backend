@@ -7,11 +7,11 @@ import uuid
 import httpx
 import pytest
 
-from forge.db.base import SessionLocal
-from forge.db.scoping import tenant_scoped
-from forge.main import create_app
-from forge.models import Run, Tenant
-from forge.services.quota import QuotaExceeded, check_run_quota, usage_today
+from ros.db.base import SessionLocal
+from ros.db.scoping import tenant_scoped
+from ros.main import create_app
+from ros.models import Run, Tenant
+from ros.services.quota import QuotaExceeded, check_run_quota, usage_today
 
 
 def _email() -> str:
@@ -50,7 +50,7 @@ async def test_no_quota_when_unset():
 def test_tenant_scoped_adds_filters():
     from sqlalchemy import select
 
-    from forge.models import Workflow
+    from ros.models import Workflow
     sql = str(tenant_scoped(select(Workflow), Workflow, "t1", project_id="p1"))
     assert "tenant_id" in sql and "project_id" in sql
 

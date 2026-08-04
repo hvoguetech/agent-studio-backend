@@ -14,8 +14,8 @@ import uuid
 import httpx
 import pytest
 
-from forge.config import settings
-from forge.main import create_app
+from ros.config import settings
+from ros.main import create_app
 
 
 def _client() -> httpx.AsyncClient:
@@ -28,8 +28,8 @@ def _email() -> str:
 
 @pytest.fixture(autouse=True)
 def _reset_platform_state():
-    from forge.security import _revocations
-    from forge.util.ratelimit import rate_limiter
+    from ros.security import _revocations
+    from ros.util.ratelimit import rate_limiter
 
     try:
         rate_limiter._local._buckets.clear()
@@ -43,7 +43,7 @@ def _reset_platform_state():
 # --- c: production hardening guard ------------------------------------------------------
 
 def test_production_guard_flags_new_gaps():
-    from forge.config import Settings
+    from ros.config import Settings
 
     s = Settings()
     s.environment = "production"
@@ -51,10 +51,10 @@ def test_production_guard_flags_new_gaps():
     s.auth_required = True
     s.bootstrap_admin_password = "a-strong-password"
     s.egress_block_private = True
-    s.database_url = "postgresql+asyncpg://u:p@db/forge"
+    s.database_url = "postgresql+asyncpg://u:p@db/ros"
     s.checkpoint_backend = "postgres"
     s.trusted_hosts = []                       # -> flagged
-    s.public_base_url = "http://forge.example.com"   # http -> flagged
+    s.public_base_url = "http://ros.example.com"   # http -> flagged
     s.public_console_url = "https://app.example.com"
     s.service_api_token = "tooshort"           # < min length -> flagged
     problems = s.validate_production()
@@ -63,15 +63,15 @@ def test_production_guard_flags_new_gaps():
     assert any("SERVICE_API_TOKEN" in p for p in problems)
 
     # Fixing them clears exactly those problems.
-    s.trusted_hosts = ["forge.example.com"]
-    s.public_base_url = "https://forge.example.com"
+    s.trusted_hosts = ["ros.example.com"]
+    s.public_base_url = "https://ros.example.com"
     s.service_api_token = ""  # empty = disabled, allowed
     cleared = s.validate_production()
     assert not any(("TRUSTED_HOSTS" in p or "PUBLIC_BASE_URL" in p or "SERVICE_API_TOKEN" in p) for p in cleared)
 
 
 def test_multi_worker_without_redis_warns():
-    from forge.config import Settings
+    from ros.config import Settings
 
     s = Settings()
     s.web_concurrency = 4
@@ -82,7 +82,7 @@ def test_multi_worker_without_redis_warns():
 # --- b: rate limiter pruning + fail-closed public surface -------------------------------
 
 def test_inprocess_bucket_prunes_idle_keys():
-    import forge.util.ratelimit as rl
+    import ros.util.ratelimit as rl
 
     limiter = rl.RateLimiter()
     limiter.allow("old", rate=100)
@@ -93,7 +93,7 @@ def test_inprocess_bucket_prunes_idle_keys():
 
 
 def test_public_surface_fails_closed_when_redis_unavailable():
-    from forge.util.ratelimit import ResilientRateLimiter, _RedisConn
+    from ros.util.ratelimit import ResilientRateLimiter, _RedisConn
 
     class _Down(_RedisConn):
         def __init__(self):
@@ -108,7 +108,7 @@ def test_public_surface_fails_closed_when_redis_unavailable():
 
 
 def test_public_surface_fails_closed_on_redis_error():
-    from forge.util.ratelimit import ResilientRateLimiter, _RedisConn
+    from ros.util.ratelimit import ResilientRateLimiter, _RedisConn
 
     class _Broken:
         def pipeline(self):
@@ -129,9 +129,9 @@ def test_public_surface_fails_closed_on_redis_error():
 # --- f: project budgets + allowed-models ------------------------------------------------
 
 async def test_project_budget_and_allowed_models():
-    from forge.db.base import SessionLocal
-    from forge.models import Project, Run
-    from forge.services.budget import BudgetExceeded, ModelNotAllowed, enforce_project_budget
+    from ros.db.base import SessionLocal
+    from ros.models import Project, Run
+    from ros.services.budget import BudgetExceeded, ModelNotAllowed, enforce_project_budget
 
     async with SessionLocal() as s:
         p = Project(tenant_id="tb", name="B", slug="b", config={
@@ -159,7 +159,7 @@ async def test_project_budget_and_allowed_models():
 def test_disallowed_workflow_models_at_publish():
     """Per-node allowed_models validation (item 6): every chat model in a workflow's nodes is
     checked at publish, mirroring the admission-time single-model check across all nodes."""
-    from forge.services.budget import collect_workflow_models, disallowed_workflow_models
+    from ros.services.budget import collect_workflow_models, disallowed_workflow_models
 
     executable = {
         "nodes": [
@@ -236,7 +236,7 @@ async def test_api_key_lifecycle():
         created = await c.post("/v1/api-keys", json={"name": "ci", "role": "editor"}, headers=h)
         assert created.status_code == 201, created.text
         key, key_id = created.json()["key"], created.json()["id"]
-        assert key.startswith("forge_sk_")
+        assert key.startswith("ros_sk_")
 
         kh = {"Authorization": f"Bearer {key}"}
         assert (await c.get("/v1/projects", headers=kh)).status_code == 200
@@ -334,7 +334,7 @@ async def test_email_verification_flow():
 
 
 async def test_totp_enroll_confirm_and_enforced_at_login():
-    from forge.security import _totp_at
+    from ros.security import _totp_at
 
     async with _client() as c:
         email = _email()
@@ -376,7 +376,7 @@ async def test_global_rate_limit_middleware(monkeypatch):
     async with _client() as c:
         reg = (await c.post("/v1/auth/register", json={"email": _email(), "password": "supersecret1"})).json()
         h = {"Authorization": f"Bearer {reg['access_token']}"}
-        from forge.util.ratelimit import rate_limiter
+        from ros.util.ratelimit import rate_limiter
         rate_limiter._local._buckets.clear()  # isolate the GET burst from the register POST
         codes = [(await c.get("/v1/auth/me", headers=h)).status_code for _ in range(6)]
         assert codes.count(200) == 3 and 429 in codes  # burst of 3 (rate), then throttled
@@ -387,9 +387,9 @@ async def test_global_rate_limit_middleware(monkeypatch):
 async def test_retention_purges_past_horizon():
     from datetime import datetime, timedelta
 
-    from forge.db.base import SessionLocal
-    from forge.models import Project, Run, Span, Trace
-    from forge.services.retention import RetentionService
+    from ros.db.base import SessionLocal
+    from ros.models import Project, Run, Span, Trace
+    from ros.services.retention import RetentionService
 
     async with SessionLocal() as s:
         p = Project(tenant_id="tret", name="R", slug="r", config={"tracing": {"retention_days": 7}})

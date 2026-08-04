@@ -1,6 +1,6 @@
-# Forge Roadmap & Status
+# ROS Roadmap & Status
 
-Forge implements the original product design end to end. This page tracks what's
+ROS implements the original product design end to end. This page tracks what's
 **shipped**, what's **in progress**, and what's **planned** next. Contributions toward any
 planned item are welcome - see [Contributing](../README.md#contributing).
 
@@ -21,12 +21,12 @@ planned item are welcome - see [Contributing](../README.md#contributing).
 - Agent builder with a "what the model sees" panel (compiled prompt + middleware execution order).
 - **Deep-agent supervisors on the canvas**: a `subagents` handle folds specialist agent nodes into a supervisor as callable sub-agents (org-chart branch), each with its own model/tools/prompt; deep agents build as `create_agent` + only the opt-in deepagents middleware (planning / filesystem / sub-agents / skills).
 - Playground chat wired to the live run stream with token and cost metering, plus Stop and thread reset, and a **live agent-activity timeline** (sub-agent/tool dispatches as they happen). Console runs are attributed to the signed-in operator.
-- Light/dark theme, command palette, and the in-product Forge Assistant.
+- Light/dark theme, command palette, and the in-product ROS Assistant.
 
 ### Tools & integrations
 - Tool kinds: **REST, GraphQL, Code (sandboxed), SQL, MCP**, and built-ins (calculator, time, web fetch/search, knowledge search, long-term `remember`/`recall` memory).
 - **JMESPath response projection** with a raw-to-projected token meter.
-- **Per-environment endpoints** via `{{env.*}}` (from `FORGE_TOOL_VARS`) so one tool row resolves to your dev/qa/prod host per deploy (missing keys fail loud); built-ins are auto-provisioned into every project and protected from deletion.
+- **Per-environment endpoints** via `{{env.*}}` (from `ROS_TOOL_VARS`) so one tool row resolves to your dev/qa/prod host per deploy (missing keys fail loud); built-ins are auto-provisioned into every project and protected from deletion.
 - Reliability: retries with backoff, rate limits, and response caching; an **SSRF guard** on every outbound call.
 - Auth Providers: Bearer, API key, Basic, OAuth2 (client-credentials and 3-legged with auto-refresh), and CSRF/session - backed by encrypted, reference-only secrets.
 - **Tool sets**: many-to-many groups that organize the Tools screen, are granted to an agent in one click, and publish as MCP toolsets.
@@ -42,7 +42,7 @@ planned item are welcome - see [Contributing](../README.md#contributing).
 - Channels: **Email**.
 - Triggers: webhook, schedule (interval/cron), inbound email, and polling app-events.
 - An **embeddable web widget** (origin-locked), the run API, and a per-project **MCP server** over native **Streamable-HTTP/SSE** (clients connect directly - no bridge), authenticated by a project key, per-user **personal access token**, or optional **OAuth 2.1** - exposing **tool sets**, knowledge, Q&A, or an entire **workflow as a single tool**, with per-user identity; plus consumption of external MCP servers and a least-privileged **connector** role.
-- **Import / export**: tools, workflows, agents, and components as portable `forge.bundle/1` JSON files (secret values never leave; imports never overwrite).
+- **Import / export**: tools, workflows, agents, and components as portable `ros.bundle/1` JSON files (secret values never leave; imports never overwrite).
 - Human-in-the-loop: approval pauses and live handoff to an Agent inbox.
 
 ### Observability & quality

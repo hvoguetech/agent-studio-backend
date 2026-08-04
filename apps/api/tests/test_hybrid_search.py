@@ -3,9 +3,9 @@ path (scoping, score normalization, source filtering, graceful vector fallback).
 
 from __future__ import annotations
 
-from forge.db.base import SessionLocal
-from forge.knowledge.hybrid import bm25_rank, rrf_fuse
-from forge.services.knowledge import KnowledgeService
+from ros.db.base import SessionLocal
+from ros.knowledge.hybrid import bm25_rank, rrf_fuse
+from ros.services.knowledge import KnowledgeService
 
 # --- pure primitives ---
 
@@ -35,7 +35,7 @@ def test_bm25_rank_empty_when_no_overlap():
 
 
 async def test_hybrid_search_scoped_and_normalized(tmp_path):
-    from forge.config import settings
+    from ros.config import settings
 
     settings.chroma_path = str(tmp_path / "chroma")
     async with SessionLocal() as s:
@@ -58,7 +58,7 @@ async def test_hybrid_search_scoped_and_normalized(tmp_path):
 
 
 async def test_hybrid_respects_source_filter(tmp_path):
-    from forge.config import settings
+    from ros.config import settings
 
     settings.chroma_path = str(tmp_path / "chroma2")
     async with SessionLocal() as s:
@@ -72,7 +72,7 @@ async def test_hybrid_respects_source_filter(tmp_path):
 
 
 async def test_hybrid_degrades_to_vector_without_lexical_overlap(tmp_path):
-    from forge.config import settings
+    from ros.config import settings
 
     settings.chroma_path = str(tmp_path / "chroma3")
     async with SessionLocal() as s:

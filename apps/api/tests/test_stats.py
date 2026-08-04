@@ -17,9 +17,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from forge.db.base import SessionLocal
-from forge.models import Project, Span, Tool, Trace, Workflow
-from forge.routers.stats import dashboard, project_analytics, project_stats
+from ros.db.base import SessionLocal
+from ros.models import Project, Span, Tool, Trace, Workflow
+from ros.routers.stats import dashboard, project_analytics, project_stats
 
 TENANT = "t_stats"
 
@@ -108,7 +108,7 @@ async def test_project_stats_rollups():
     r1 = d1["reports"]
     assert [(r["kind"], r["label"], r["runs"], r["cost_usd"]) for r in r1] == [
         ("workflow", "Support", 3, 1.3),
-        ("assistant", "Forge Assistant", 1, 0.05),
+        ("assistant", "ROS Assistant", 1, 0.05),
     ]
 
     # P2 exercises the 'other' (name) group and the deleted-workflow label
@@ -184,7 +184,7 @@ async def test_project_analytics():
 
     by_wf = {(r["kind"], r["label"]): r for r in a["by_workflow"]}
     assert by_wf[("workflow", "Support")]["runs"] == 2
-    assert by_wf[("assistant", "Forge Assistant")]["runs"] == 1
+    assert by_wf[("assistant", "ROS Assistant")]["runs"] == 1
     assert by_wf[("other", "run")]["runs"] == 1
 
     tools = {t["name"]: t for t in a["tools"]}

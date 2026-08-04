@@ -7,7 +7,7 @@ import uuid
 import httpx
 import pytest
 
-from forge.tools.rest import execute_rest
+from ros.tools.rest import execute_rest
 
 
 def _cfg(**extra) -> dict:
@@ -75,7 +75,7 @@ async def test_missing_path_param_raises_clear_error():
 
 
 def test_cap_payload_truncates_large_only():
-    from forge.tools.projection import cap_payload
+    from ros.tools.projection import cap_payload
 
     assert cap_payload({"a": 1}, 20000) == {"a": 1}  # small passes through unchanged
     big = "x" * 50000

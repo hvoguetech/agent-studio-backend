@@ -8,9 +8,9 @@ model a blank ("Project default") node actually runs must be selectable in the U
 
 from __future__ import annotations
 
-from forge.engine.models import _PROVIDER_CHEAP_MODEL
-from forge.model_catalog import CHAT_MODELS, EMBEDDING_MODELS, RERANKER_MODELS, catalog_prices
-from forge.tracing.pricing import _resolve_rate, merged_prices
+from ros.engine.models import _PROVIDER_CHEAP_MODEL
+from ros.model_catalog import CHAT_MODELS, EMBEDDING_MODELS, RERANKER_MODELS, catalog_prices
+from ros.tracing.pricing import _resolve_rate, merged_prices
 
 
 def test_every_offered_model_is_priced():
@@ -43,7 +43,7 @@ def test_catalog_rates_are_the_ones_the_cost_engine_uses():
 
 def test_embedding_default_matches_backend():
     # The picker's default embedder must be the one the backend actually falls back to.
-    from forge.knowledge.embeddings import _DEFAULT_FASTEMBED
+    from ros.knowledge.embeddings import _DEFAULT_FASTEMBED
 
     defaults = [m for m in EMBEDDING_MODELS if m.default]
     assert len(defaults) == 1, "exactly one default embedding model"
@@ -51,7 +51,7 @@ def test_embedding_default_matches_backend():
 
 
 def test_reranker_default_matches_backend():
-    from forge.knowledge.rerank import DEFAULT_RERANKER
+    from ros.knowledge.rerank import DEFAULT_RERANKER
 
     defaults = [m for m in RERANKER_MODELS if m.default]
     assert len(defaults) == 1, "exactly one default reranker"

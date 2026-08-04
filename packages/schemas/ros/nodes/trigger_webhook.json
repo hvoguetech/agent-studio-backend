@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ros/nodes/trigger_webhook",
+  "type": "object",
+  "properties": {
+    "message_path": { "type": "string", "x-ui": { "help": "JMESPath into the webhook JSON body to use as the user message (empty = the whole body)." } },
+    "require_signature": { "type": "boolean", "default": false, "x-ui": { "help": "Require a valid HMAC-SHA256 signature (X-ROS-Signature) computed with the secret." } },
+    "secret_ref": { "$ref": "ros/common#/$defs/SecretRef" }
+  }
+}

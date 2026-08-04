@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from forge.db.base import SessionLocal
-from forge.knowledge.embeddings import cosine, resolve_embedder
-from forge.knowledge.splitter import split_text
-from forge.services.knowledge import KnowledgeService
+from ros.db.base import SessionLocal
+from ros.knowledge.embeddings import cosine, resolve_embedder
+from ros.knowledge.splitter import split_text
+from ros.services.knowledge import KnowledgeService
 
 
 def test_splitter_chunks_long_text():
@@ -36,7 +36,7 @@ async def test_qa_create_and_lookup():
 
 
 async def test_ingest_text_and_search(tmp_path):
-    from forge.config import settings
+    from ros.config import settings
 
     settings.chroma_path = str(tmp_path / "chroma")  # isolate Chroma for the test
     async with SessionLocal() as s:

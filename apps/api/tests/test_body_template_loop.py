@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import json
 
-from forge.auth_providers.templates import has_each_directive, render_template, render_value
-from forge.tools.rest import _build_body
+from ros.auth_providers.templates import has_each_directive, render_template, render_value
+from ros.tools.rest import _build_body
 
 
 def test_render_value_each_expands_per_item():

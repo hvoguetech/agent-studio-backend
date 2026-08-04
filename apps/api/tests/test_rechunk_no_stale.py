@@ -6,10 +6,10 @@ re-ingesting, so the store row count always equals the source's reported chunk c
 """
 from __future__ import annotations
 
-from forge.db.base import SessionLocal
-from forge.knowledge.store import _where
-from forge.models import Project
-from forge.services.knowledge import KnowledgeService
+from ros.db.base import SessionLocal
+from ros.knowledge.store import _where
+from ros.models import Project
+from ros.services.knowledge import KnowledgeService
 
 _TEXT = ("Refunds go to the original card within five business days. Shipping takes two days. "
          "Error XJ9000 is a gateway timeout; retry after 30 seconds. Our office is in Berlin. ") * 5
@@ -29,7 +29,7 @@ def _rows(embedder, pid, sid) -> int:
 
 
 async def test_rechunk_replaces_not_accumulates(tmp_path):
-    from forge.config import settings
+    from ros.config import settings
 
     settings.chroma_path = str(tmp_path / "chroma_rc")
     pid = await _make_project("rc", {"chunk_size": 200, "chunk_overlap": 0})
@@ -50,7 +50,7 @@ async def test_rechunk_replaces_not_accumulates(tmp_path):
 async def test_reembed_same_settings_stays_flat(tmp_path):
     """The exact 'Apply & re-embed' path (run_ingest_bg with reingest=True) repeated with
     UNCHANGED settings must not grow the row count."""
-    from forge.config import settings
+    from ros.config import settings
 
     settings.chroma_path = str(tmp_path / "chroma_bg")
     pid = await _make_project("bg", {"chunk_size": 180, "chunk_overlap": 0})
@@ -69,7 +69,7 @@ async def test_reembed_same_settings_stays_flat(tmp_path):
 async def test_dedupe_removes_exact_duplicate_chunks(tmp_path):
     """The same document ingested twice -> identical chunks; dedupe keeps one copy of each and
     fixes the affected sources' counts."""
-    from forge.config import settings
+    from ros.config import settings
 
     settings.chroma_path = str(tmp_path / "chroma_dedupe")
     pid = await _make_project("dedupe", {"chunk_size": 200, "chunk_overlap": 0})

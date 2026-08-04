@@ -1,9 +1,9 @@
 """Server-to-server integration primitives:
 
-1. A static service API token (`FORGE_SERVICE_API_TOKEN`) that authenticates a trusted backend
+1. A static service API token (`ROS_SERVICE_API_TOKEN`) that authenticates a trusted backend
    as a least-privilege (editor) service identity - the outer "is this call from our backend"
    barrier. Non-expiring, revoked by rotation.
-2. An egress allow-private-hosts toggle (`FORGE_EGRESS_ALLOW_PRIVATE_HOSTS`) that lets specific
+2. An egress allow-private-hosts toggle (`ROS_EGRESS_ALLOW_PRIVATE_HOSTS`) that lets specific
    trusted internal hosts (localhost, on-prem services) be reached even while the SSRF guard's
    private-address block stays on globally (default-deny, explicit-allow).
 """
@@ -11,9 +11,9 @@
 import pytest
 from fastapi import HTTPException
 
-from forge.config import settings
-from forge.deps import get_current_user
-from forge.util.ssrf import EgressBlocked, EgressPolicy, validate_url
+from ros.config import settings
+from ros.deps import get_current_user
+from ros.util.ssrf import EgressBlocked, EgressPolicy, validate_url
 
 # --- service token ---------------------------------------------------------------------------
 

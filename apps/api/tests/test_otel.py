@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from forge.tracing import otel
-from forge.tracing.tracer import SpanRecord
+from ros.tracing import otel
+from ros.tracing.tracer import SpanRecord
 
 
 def test_export_emits_spans_with_genai_attributes():

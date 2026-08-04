@@ -3,12 +3,12 @@ and parent-child retrieval. Q&A logic is deliberately NOT exercised here - it is
 
 from __future__ import annotations
 
-from forge.db.base import SessionLocal
-from forge.knowledge.rerank import _sigmoid, rerank_hits
-from forge.knowledge.splitter import _percentile, chunk_text
-from forge.knowledge.store import Hit
-from forge.models import Project
-from forge.services.knowledge import KnowledgeService
+from ros.db.base import SessionLocal
+from ros.knowledge.rerank import _sigmoid, rerank_hits
+from ros.knowledge.splitter import _percentile, chunk_text
+from ros.knowledge.store import Hit
+from ros.models import Project
+from ros.services.knowledge import KnowledgeService
 
 # --- reranker: pure + graceful degradation (no model download needed) ---
 
@@ -93,7 +93,7 @@ async def _make_project(slug: str, rag_defaults: dict) -> str:
 
 
 async def test_semantic_ingest_does_not_crash(tmp_path):
-    from forge.config import settings
+    from ros.config import settings
 
     settings.chroma_path = str(tmp_path / "chroma_sem")
     pid = await _make_project("rag-semantic", {"chunking_strategy": "semantic"})
@@ -108,7 +108,7 @@ async def test_semantic_ingest_does_not_crash(tmp_path):
 
 
 async def test_parent_child_ingest_and_retrieval(tmp_path):
-    from forge.config import settings
+    from ros.config import settings
 
     settings.chroma_path = str(tmp_path / "chroma_pc")
     pid = await _make_project("rag-parentchild", {"retrieval_mode": "parent_child", "chunk_size": 400, "child_chunk_size": 120})
@@ -137,7 +137,7 @@ async def test_parent_child_ingest_and_retrieval(tmp_path):
 
 
 async def test_chunk_map_projects_and_marks_retrieved(tmp_path):
-    from forge.config import settings
+    from ros.config import settings
 
     settings.chroma_path = str(tmp_path / "chroma_map")
     pid = await _make_project("rag-map", {"chunk_size": 200})
@@ -164,7 +164,7 @@ async def test_chunk_map_projects_and_marks_retrieved(tmp_path):
 
 
 async def test_chunk_map_empty_project_is_safe(tmp_path):
-    from forge.config import settings
+    from ros.config import settings
 
     settings.chroma_path = str(tmp_path / "chroma_map_empty")
     pid = await _make_project("rag-map-empty", {})
@@ -175,7 +175,7 @@ async def test_chunk_map_empty_project_is_safe(tmp_path):
 
 async def test_flat_mode_unchanged(tmp_path):
     """Default (no retrieval_mode) still returns plain chunks with no parent metadata."""
-    from forge.config import settings
+    from ros.config import settings
 
     settings.chroma_path = str(tmp_path / "chroma_flat")
     pid = await _make_project("rag-flat", {})

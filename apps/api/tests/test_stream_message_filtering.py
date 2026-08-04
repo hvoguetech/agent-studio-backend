@@ -8,7 +8,7 @@ stream suppresses those by node id so a client no longer has to guess from node-
 
 from __future__ import annotations
 
-from forge.services.runs import _internal_message_nodes
+from ros.services.runs import _internal_message_nodes
 
 
 def test_suppresses_classifier_router_start_and_structured_llm():

@@ -1,12 +1,12 @@
 # Security Policy
 
-Forge is self-hosted and handles sensitive material — provider API keys, encrypted
+ROS is self-hosted and handles sensitive material — provider API keys, encrypted
 secrets, auth credentials, and outbound requests to your systems. We take security issues
 seriously.
 
 ## Supported versions
 
-Forge is pre-1.0 and under active development. Security fixes land on the `main` branch and
+ROS is pre-1.0 and under active development. Security fixes land on the `main` branch and
 are included in the next release. Please test against the latest `main` before reporting.
 
 | Version | Supported |
@@ -36,7 +36,7 @@ reporters (unless you prefer to remain anonymous) once a fix ships.
 
 ## Built-in safeguards
 
-Forge ships several defense-in-depth controls; when reporting, note if your finding
+ROS ships several defense-in-depth controls; when reporting, note if your finding
 bypasses one:
 
 - **SSRF guard** on every outbound call (tools, webhooks, fetch, crawl) — private,
@@ -51,7 +51,7 @@ bypasses one:
 
 ## Scope
 
-In scope: the Forge API, web console, engine, tools/auth subsystems, and the container
+In scope: the ROS API, web console, engine, tools/auth subsystems, and the container
 stack. Out of scope: vulnerabilities in third-party dependencies (report those upstream;
-tell us if Forge's usage makes them exploitable), and issues requiring a
+tell us if ROS's usage makes them exploitable), and issues requiring a
 already-compromised host or admin credentials.

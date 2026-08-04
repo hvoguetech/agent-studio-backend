@@ -9,10 +9,10 @@ import uuid
 import httpx
 import pytest
 
-from forge.auth_providers.resolver import AuthResolver
-from forge.db.base import SessionLocal
-from forge.main import create_app
-from forge.services.auth_providers import AuthProviderService
+from ros.auth_providers.resolver import AuthResolver
+from ros.db.base import SessionLocal
+from ros.main import create_app
+from ros.services.auth_providers import AuthProviderService
 
 
 async def _provider(tenant: str, project: str, kind: str, extra: dict) -> str:
@@ -85,7 +85,7 @@ async def test_per_user_bearer_inline_token_wins_and_no_cache_collision():
 async def test_extra_headers_literal_and_secret_ref():
     """A provider's extra_headers are stamped on every call: literals verbatim, secret:// refs
     resolved from the secret store — so a shared service token lives in the store, never hardcoded."""
-    from forge.secrets.store import SecretStore
+    from ros.secrets.store import SecretStore
     tenant, project = "t_eh", "p_eh"
     async with SessionLocal() as s:
         await SecretStore().write(s, tenant_id=tenant, project_id=project, name="primary", value="PRIMARY")
@@ -93,15 +93,15 @@ async def test_extra_headers_literal_and_secret_ref():
         ap = await AuthProviderService.create(
             s, tenant, project, name="q", kind="bearer",
             config={"kind": "bearer", "token_ref": "secret://proj/primary", "header_name": "Authorization",
-                    "prefix": "Bearer ", "extra_headers": {"X-Forge-Client-Id": "forge",
-                                                           "X-Forge-Service-Token": "secret://proj/svc_tok"}},
+                    "prefix": "Bearer ", "extra_headers": {"X-ROS-Client-Id": "ros",
+                                                           "X-ROS-Service-Token": "secret://proj/svc_tok"}},
         )
         ap_id = ap.id
 
     r = await AuthResolver().resolve(tenant_id=tenant, project_id=project, provider_id=ap_id)
     assert r.headers["Authorization"] == "Bearer PRIMARY"
-    assert r.headers["X-Forge-Client-Id"] == "forge"           # literal, verbatim
-    assert r.headers["X-Forge-Service-Token"] == "SVC-123"     # resolved from the secret store
+    assert r.headers["X-ROS-Client-Id"] == "ros"           # literal, verbatim
+    assert r.headers["X-ROS-Service-Token"] == "SVC-123"     # resolved from the secret store
 
 
 def _http() -> httpx.AsyncClient:

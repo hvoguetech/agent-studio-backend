@@ -12,8 +12,8 @@ from urllib.parse import parse_qs, parse_qsl
 
 import httpx
 
-from forge.tools.rest import build_args_schema, execute_rest
-from forge.util.ssrf import EgressPolicy
+from ros.tools.rest import build_args_schema, execute_rest
+from ros.util.ssrf import EgressPolicy
 
 # Permissive policy: the capturing client short-circuits the network, and block_private=False
 # keeps the SSRF guard from doing a real DNS lookup on the example host.

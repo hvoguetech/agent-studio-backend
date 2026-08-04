@@ -5,12 +5,12 @@ from __future__ import annotations
 import httpx
 from sqlalchemy import select
 
-from forge.auth_providers.resolver import AuthResolver
-from forge.db.base import SessionLocal
-from forge.models import AuditLog, AuthProvider
-from forge.secrets.store import SecretStore
-from forge.services.tools import ToolService
-from forge.tools.rest import build_args_schema, execute_rest
+from ros.auth_providers.resolver import AuthResolver
+from ros.db.base import SessionLocal
+from ros.models import AuditLog, AuthProvider
+from ros.secrets.store import SecretStore
+from ros.services.tools import ToolService
+from ros.tools.rest import build_args_schema, execute_rest
 
 GET_ORDER = {
     "name": "get_order",
@@ -127,8 +127,8 @@ def test_resolve_model_injects_project_provider_key(monkeypatch):
 
     monkeypatch.setattr(cm, "init_chat_model", fake_init)
 
-    from forge.engine.context import CompileContext
-    from forge.engine.models import resolve_model
+    from ros.engine.context import CompileContext
+    from ros.engine.models import resolve_model
 
     ctx = CompileContext(tenant_id="t", project_id="p", provider_credentials={"openai": "sk-proj-test"})
     resolve_model("openai:gpt-5.4-mini", ctx)
@@ -156,9 +156,9 @@ async def test_agent_compiles_and_runs_with_bound_tool():
     from langchain_core.messages import HumanMessage
     from langgraph.checkpoint.memory import InMemorySaver
 
-    from forge.engine.compiler import compile_workflow
-    from forge.services.runtime import make_runtime_ctx
-    from forge.tools.materialize import materialize_tool
+    from ros.engine.compiler import compile_workflow
+    from ros.services.runtime import make_runtime_ctx
+    from ros.tools.materialize import materialize_tool
 
     ctx = make_runtime_ctx("t", "p")
     ctx.checkpointer = InMemorySaver()
@@ -184,8 +184,8 @@ async def test_agent_actually_invokes_tool_full_loop():
     from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
     from langchain_core.messages import AIMessage, HumanMessage
 
-    from forge.services.runtime import make_runtime_ctx
-    from forge.tools.materialize import materialize_tool
+    from ros.services.runtime import make_runtime_ctx
+    from ros.tools.materialize import materialize_tool
 
     class Fake(GenericFakeChatModel):
         def bind_tools(self, tools=None, **kwargs):

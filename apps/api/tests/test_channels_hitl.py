@@ -18,14 +18,14 @@ from types import SimpleNamespace
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
-from forge.channels import email as email_ch
-from forge.db.base import SessionLocal
-from forge.models import HandoffRequest, Run, Workflow
-from forge.routers import hooks
-from forge.services.channels import ChannelService
-from forge.services.dispatch import dispatch_message
-from forge.services.handoff import HandoffService, coerce_to_allowed_decision
-from forge.services.runs import RunService, run_control
+from ros.channels import email as email_ch
+from ros.db.base import SessionLocal
+from ros.models import HandoffRequest, Run, Workflow
+from ros.routers import hooks
+from ros.services.channels import ChannelService
+from ros.services.dispatch import dispatch_message
+from ros.services.handoff import HandoffService, coerce_to_allowed_decision
+from ros.services.runs import RunService, run_control
 
 # --- workflow fixtures --------------------------------------------------------------------
 
@@ -81,8 +81,8 @@ async def _mk_wf(executable, tenant, project) -> Workflow:
 
 
 def test_semantic_cache_middleware_registered_and_builds():
-    from forge.engine.context import CompileContext
-    from forge.engine.middleware_compiler import (
+    from ros.engine.context import CompileContext
+    from ros.engine.middleware_compiler import (
         MW_BUILDERS,
         _SemanticCacheMiddleware,
         build_middleware,
@@ -97,7 +97,7 @@ def test_semantic_cache_middleware_registered_and_builds():
 async def test_semantic_cache_middleware_short_circuits_on_hit(monkeypatch):
     from langchain.agents.middleware.types import ModelResponse
 
-    from forge.engine.middleware_compiler import _SemanticCacheMiddleware
+    from ros.engine.middleware_compiler import _SemanticCacheMiddleware
 
     calls = {"handler": 0, "store": 0}
     stored: dict[str, str] = {}
@@ -109,8 +109,8 @@ async def test_semantic_cache_middleware_short_circuits_on_hit(monkeypatch):
         calls["store"] += 1
         stored[q.strip().lower()] = a
 
-    monkeypatch.setattr("forge.services.semantic_cache.SemanticCacheService.lookup", fake_lookup)
-    monkeypatch.setattr("forge.services.semantic_cache.SemanticCacheService.store", fake_store)
+    monkeypatch.setattr("ros.services.semantic_cache.SemanticCacheService.lookup", fake_lookup)
+    monkeypatch.setattr("ros.services.semantic_cache.SemanticCacheService.store", fake_store)
 
     async def handler(_req):
         calls["handler"] += 1
@@ -132,7 +132,7 @@ async def test_semantic_cache_middleware_short_circuits_on_hit(monkeypatch):
 async def test_semantic_cache_middleware_skips_mid_tool_loop(monkeypatch):
     from langchain.agents.middleware.types import ModelResponse
 
-    from forge.engine.middleware_compiler import _SemanticCacheMiddleware
+    from ros.engine.middleware_compiler import _SemanticCacheMiddleware
 
     looked_up = []
 
@@ -140,8 +140,8 @@ async def test_semantic_cache_middleware_skips_mid_tool_loop(monkeypatch):
         looked_up.append(q)
         return None
 
-    monkeypatch.setattr("forge.services.semantic_cache.SemanticCacheService.lookup", fake_lookup)
-    monkeypatch.setattr("forge.services.semantic_cache.SemanticCacheService.store", lambda *a, **k: None)
+    monkeypatch.setattr("ros.services.semantic_cache.SemanticCacheService.lookup", fake_lookup)
+    monkeypatch.setattr("ros.services.semantic_cache.SemanticCacheService.store", lambda *a, **k: None)
 
     async def handler(_req):
         return ModelResponse(result=[AIMessage(content="x")])
@@ -155,7 +155,7 @@ async def test_semantic_cache_middleware_skips_mid_tool_loop(monkeypatch):
 
 
 async def test_semantic_cache_purge(monkeypatch):
-    from forge.services.semantic_cache import SemanticCacheService
+    from ros.services.semantic_cache import SemanticCacheService
 
     t, p = "t_purge", "p_purge"
     async with SessionLocal() as s:
@@ -240,7 +240,7 @@ async def test_handoff_reply_coerces_free_text_decision():
             s, channel=None, tenant_id="t_coerce", project_id="p_coerce", workflow_id=wf.id,
             run_id=result["run_id"], thread_id=result["thread_id"], customer="u",
             customer_message="please", reason="approve?",
-            reply_context={"_forge_hitl": {"allowed_decisions": ["approve", "reject"]}},
+            reply_context={"_ros_hitl": {"allowed_decisions": ["approve", "reject"]}},
         )
         out = await HandoffService.reply(s, rs, handoff=h, agent_id="a1", message="yes, go ahead")
     assert out["ok"] is True
@@ -304,7 +304,7 @@ async def test_hitl_timeout_expires_interrupted_run(monkeypatch):
         delivered.append(text)
         return True
 
-    monkeypatch.setattr("forge.services.handoff._deliver", _rec_deliver)
+    monkeypatch.setattr("ros.services.handoff._deliver", _rec_deliver)
     wf = await _mk_wf(_HITL_ONE, "t_exp", "p_exp")
     rs = RunService(checkpointer=InMemorySaver())
     result = await dispatch_message(rs, tenant_id="t_exp", project_id="p_exp", workflow_id=wf.id, text="please")
@@ -460,5 +460,5 @@ def test_webhook_default_hmac_signature():
     mac = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
     req = SimpleNamespace(headers={"X-Hub-Signature-256": f"sha256={mac}"})
     assert hooks._verify_hmac_sha256(secret, req, body) is True
-    req2 = SimpleNamespace(headers={"x-forge-signature": mac})
+    req2 = SimpleNamespace(headers={"x-ros-signature": mac})
     assert hooks._verify_hmac_sha256(secret, req2, body) is True

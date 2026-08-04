@@ -1,7 +1,7 @@
-"""Alembic environment for Forge.
+"""Alembic environment for ROS.
 
 Uses the app's `Base.metadata` as the autogenerate target and the configured
-`FORGE_DATABASE_URL` (async drivers downgraded to their sync equivalent for the
+`ROS_DATABASE_URL` (async drivers downgraded to their sync equivalent for the
 migration connection). Future schema changes: `alembic revision --autogenerate -m '…'`.
 """
 
@@ -10,9 +10,9 @@ from __future__ import annotations
 from alembic import context
 from sqlalchemy import create_engine, pool
 
-import forge.models  # noqa: F401 - register all tables on Base.metadata
-from forge.config import settings
-from forge.db.base import Base
+import ros.models  # noqa: F401 - register all tables on Base.metadata
+from ros.config import settings
+from ros.db.base import Base
 
 config = context.config
 target_metadata = Base.metadata

@@ -9,10 +9,10 @@ import pathlib
 import jsonschema
 import pytest
 
-from forge.tools.output_schema import OutputSchemaError, infer_schema, validate_output
-from forge.util.metrics import snapshot
+from ros.tools.output_schema import OutputSchemaError, infer_schema, validate_output
+from ros.util.metrics import snapshot
 
-_SCHEMAS = pathlib.Path(__file__).resolve().parents[3] / "packages" / "schemas" / "forge"
+_SCHEMAS = pathlib.Path(__file__).resolve().parents[3] / "packages" / "schemas" / "ros"
 
 
 # --- AC-1: the tool + node schemas accept an OPTIONAL output_schema ------------------------

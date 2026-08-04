@@ -16,7 +16,7 @@ build/
 *.tsbuildinfo
 .turbo/
 
-# --- Forge runtime data & secrets ---
+# --- ROS runtime data & secrets ---
 apps/api/.data/
 *.db
 *.sqlite

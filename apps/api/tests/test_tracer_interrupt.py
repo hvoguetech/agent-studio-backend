@@ -11,11 +11,11 @@ from __future__ import annotations
 
 from langgraph.errors import GraphInterrupt
 
-from forge.tracing.tracer import ForgeTracer
+from ros.tracing.tracer import ROSTracer
 
 
 def test_chain_interrupt_is_not_a_span_error():
-    tr = ForgeTracer()
+    tr = ROSTracer()
     tr.on_chain_start({"name": "agent_1"}, {}, run_id="agent-1")
     tr.on_chain_error(GraphInterrupt(), run_id="agent-1")  # HITL pause bubbling up
     sp = tr.spans["agent-1"]
@@ -25,7 +25,7 @@ def test_chain_interrupt_is_not_a_span_error():
 
 
 def test_tool_interrupt_is_not_a_span_error():
-    tr = ForgeTracer()
+    tr = ROSTracer()
     tr.on_tool_start({"name": "get_weather"}, "args", run_id="tool-1")
     tr.on_tool_error(GraphInterrupt(), run_id="tool-1")
     sp = tr.spans["tool-1"]
@@ -34,7 +34,7 @@ def test_tool_interrupt_is_not_a_span_error():
 
 
 def test_real_error_is_still_recorded():
-    tr = ForgeTracer()
+    tr = ROSTracer()
     tr.on_chain_start({"name": "some_node"}, {}, run_id="node-1")
     tr.on_chain_error(ValueError("boom"), run_id="node-1")
     sp = tr.spans["node-1"]

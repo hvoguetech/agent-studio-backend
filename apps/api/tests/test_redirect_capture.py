@@ -16,9 +16,9 @@ import uuid
 import httpx
 import pytest
 
-from forge.tools import rest as rest_mod
-from forge.tools.rest import build_rest_tool, execute_rest
-from forge.util.ssrf import EgressBlocked, EgressPolicy
+from ros.tools import rest as rest_mod
+from ros.tools.rest import build_rest_tool, execute_rest
+from ros.util.ssrf import EgressBlocked, EgressPolicy
 
 
 def _cfg(**extra) -> dict:
@@ -74,7 +74,7 @@ async def test_tool_test_preview_counts_the_redirect_not_an_empty_body():
     """The /test preview (ToolService.test) must reflect what the agent actually gets:
     the {body, redirect} envelope, not the empty 3xx body. Otherwise 'PROJECTED -> MODEL'
     reads "" / 0 tok and looks like nothing reaches the model."""
-    from forge.services.tools import ToolService
+    from ros.services.tools import ToolService
 
     client = _redirecting_client("/shop/addproduct/PROD-001")
     rest_mod_select = rest_mod.select_client
@@ -96,7 +96,7 @@ async def test_tool_test_preview_counts_the_redirect_not_an_empty_body():
 
 async def test_tool_test_preview_leaves_non_redirect_body_bare():
     """No redirect -> the preview stays the bare body (unchanged), not an envelope."""
-    from forge.services.tools import ToolService
+    from ros.services.tools import ToolService
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"v": 1})))
     rest_mod_select = rest_mod.select_client
@@ -116,7 +116,7 @@ async def test_tool_test_preview_leaves_non_redirect_body_bare():
 async def test_projection_can_select_the_redirect_location():
     """`redirect.location` must reach the redirect envelope and collapse the observation to just
     the target URL - so a 3xx can be stripped to the one thing the model needs, cheaply."""
-    from forge.services.tools import ToolService
+    from ros.services.tools import ToolService
 
     client = _redirecting_client("/shop/addproduct/PROD-002")
     cfg = _cfg(response={"projection_jmespath": "redirect.location"})
@@ -157,7 +157,7 @@ async def test_no_redirect_returns_bare_body_unchanged():
     await client.aclose()
 
     assert res["redirect"] is None
-    from forge.tools.rest import _tool_return
+    from ros.tools.rest import _tool_return
 
     assert _tool_return(res, _cfg()) == {"v": 1}  # bare body, not wrapped
 

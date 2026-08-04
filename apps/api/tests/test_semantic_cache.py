@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from forge.db.base import SessionLocal
-from forge.services.semantic_cache import SemanticCacheService
+from ros.db.base import SessionLocal
+from ros.services.semantic_cache import SemanticCacheService
 
 T, P = "t_sc", "p_sc"
 

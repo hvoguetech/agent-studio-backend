@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from forge.engine.models import cheap_model_for_credentials, default_model_for_credentials
-from forge.tools.projection import count_tokens, estimate_tokens
+from ros.engine.models import cheap_model_for_credentials, default_model_for_credentials
+from ros.tools.projection import count_tokens, estimate_tokens
 
 
 def test_count_tokens_nonzero_and_aliased():

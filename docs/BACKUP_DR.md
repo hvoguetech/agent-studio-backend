@@ -1,7 +1,7 @@
 # Backup, Disaster Recovery & DB connection pooling (A/C6)
 
-Guidance for running Forge's Postgres durably in production. Forge stores all durable state in
-Postgres (application data + the LangGraph checkpointer when `FORGE_CHECKPOINT_BACKEND=postgres`);
+Guidance for running ROS's Postgres durably in production. ROS stores all durable state in
+Postgres (application data + the LangGraph checkpointer when `ROS_CHECKPOINT_BACKEND=postgres`);
 object storage (uploads/knowledge, A/C7) is separate.
 
 ## Connection pooling (shipped)
@@ -11,11 +11,11 @@ Each API/worker replica keeps a tuned SQLAlchemy `QueuePool` against Postgres (S
 
 | Setting | Default | Notes |
 |---|---|---|
-| `FORGE_DB_POOL_SIZE` | 10 | Steady-state connections held open. |
-| `FORGE_DB_MAX_OVERFLOW` | 20 | Extra burst connections above `pool_size`. |
-| `FORGE_DB_POOL_TIMEOUT` | 30 | Seconds to wait for a connection before erroring. |
-| `FORGE_DB_POOL_RECYCLE` | 1800 | Recycle a connection after this many seconds (drops stale ones). |
-| `FORGE_DB_POOL_PRE_PING` | true | Validate a pooled connection before use (survives a DB failover/restart). |
+| `ROS_DB_POOL_SIZE` | 10 | Steady-state connections held open. |
+| `ROS_DB_MAX_OVERFLOW` | 20 | Extra burst connections above `pool_size`. |
+| `ROS_DB_POOL_TIMEOUT` | 30 | Seconds to wait for a connection before erroring. |
+| `ROS_DB_POOL_RECYCLE` | 1800 | Recycle a connection after this many seconds (drops stale ones). |
+| `ROS_DB_POOL_PRE_PING` | true | Validate a pooled connection before use (survives a DB failover/restart). |
 
 **Sizing:** peak connections per replica ≈ `pool_size + max_overflow`. Keep
 `replicas × (pool_size + max_overflow)` comfortably **below Postgres `max_connections`**, leaving
@@ -25,7 +25,7 @@ headroom for admin/maintenance connections.
 **transaction** pooling breaks (a) the A/C2 leader-election session advisory locks and (b) any
 session-scoped state (`SET LOCAL` RLS GUC is per-transaction and is fine; prepared statements are
 not). If you must use transaction pooling, run the scheduler/reaper leader election on Redis
-(`FORGE_REDIS_URL`) instead of the Postgres advisory lock.
+(`ROS_REDIS_URL`) instead of the Postgres advisory lock.
 
 ## Backups & Point-in-Time Recovery
 
@@ -46,7 +46,7 @@ backup is not a backup.
   this for you. `pool_pre_ping` above lets replicas recover automatically after a failover promotes
   the standby (stale connections are discarded and reopened to the new primary).
 - Optional **read replicas** for heavy read workloads (Traces/analytics); route reads explicitly —
-  Forge does not split reads/writes automatically today.
+  ROS does not split reads/writes automatically today.
 
 ## Follow-ups (infra/ops, out of scope for the app)
 

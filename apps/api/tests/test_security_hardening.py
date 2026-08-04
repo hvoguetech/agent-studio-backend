@@ -11,10 +11,10 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from forge.db.base import SessionLocal
-from forge.models import Run, Tenant, Workflow
-from forge.services.components import ComponentService
-from forge.services.runs import RunService
+from ros.db.base import SessionLocal
+from ros.models import Run, Tenant, Workflow
+from ros.services.components import ComponentService
+from ros.services.runs import RunService
 
 # --- S1: runs are scoped by project, not just tenant -------------------------------------
 
@@ -69,7 +69,7 @@ async def test_create_run_isolates_foreign_identity_threads():
 # --- F2 / S2: quota admission is enforced (and atomic) -----------------------------------
 
 async def test_run_admission_enforces_quota():
-    from forge.services.quota import QuotaExceeded, run_admission
+    from ros.services.quota import QuotaExceeded, run_admission
 
     async with SessionLocal() as s:
         t = Tenant(name="QA", settings={"max_runs_per_day": 1})
@@ -85,7 +85,7 @@ async def test_run_admission_enforces_quota():
 
 
 async def test_quota_ignores_errored_runs():
-    from forge.services.quota import check_run_quota
+    from ros.services.quota import check_run_quota
 
     async with SessionLocal() as s:
         t = Tenant(name="QE", settings={"max_runs_per_day": 1})
@@ -132,7 +132,7 @@ async def test_resume_rejects_non_interrupted_run():
 # --- S11: identity (session) tokens can be revoked ---------------------------------------
 
 def test_session_token_roundtrip_and_revocation():
-    from forge.security import TokenError, create_session_token, decode_token, revoke
+    from ros.security import TokenError, create_session_token, decode_token, revoke
 
     tok = create_session_token(tenant_id="t", project_id="p", end_user={"id": "u"})
     claims = decode_token(tok, expected_type="session")
@@ -157,8 +157,8 @@ async def test_component_get_is_project_scoped():
 # --- S7: the SQL-tool DSN guard honors the per-project EgressPolicy instance --------------
 
 async def test_sql_tool_honors_project_egress_policy():
-    from forge.tools.sql import execute_sql
-    from forge.util.ssrf import EgressBlocked, EgressPolicy
+    from ros.tools.sql import execute_sql
+    from ros.util.ssrf import EgressBlocked, EgressPolicy
 
     cfg = {"name": "q", "query": "SELECT 1",
            "connection_url": "postgresql+asyncpg://u:p@blocked.example.com:5432/db"}
@@ -172,7 +172,7 @@ async def test_sql_tool_honors_project_egress_policy():
 # --- S4: a non-editor cannot self-assert privileged identity via the run body ------------
 
 def test_role_gate_blocks_viewer_entitlements():
-    from forge.services.auth import role_at_least
+    from ros.services.auth import role_at_least
 
     # The create_run route strips roles/entitlements unless the caller is editor+.
     assert role_at_least("editor", "editor") is True

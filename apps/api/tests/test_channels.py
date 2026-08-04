@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from forge.channels import email as email_ch
+from ros.channels import email as email_ch
 
 # --- email parsing ---
 

@@ -1,7 +1,7 @@
 """Regression: ToolRuntime must be injected into materialized REST/GraphQL tools.
 
 Two historical failure modes (both caused by `from __future__ import annotations`
-in forge/tools/rest.py):
+in ros/tools/rest.py):
 1. compile time - NameError("ToolRuntime") when create_agent resolved the string
    annotation against module globals where ToolRuntime wasn't imported.
 2. call time - "_call() missing 1 required positional argument: 'runtime'":
@@ -19,8 +19,8 @@ import pytest
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
 
-from forge.engine.context import CompileContext
-from forge.tools import rest
+from ros.engine.context import CompileContext
+from ros.tools import rest
 
 REST_CFG = {
     "name": "get_thing",
@@ -57,7 +57,7 @@ def test_runtime_param_is_visible_to_langchain():
     tool = rest.build_rest_tool(REST_CFG, CompileContext(tenant_id="t", project_id="p"))
     assert tool._injected_args_keys == frozenset({"runtime"}), (
         "StructuredTool can't see the runtime param - string annotations strike again "
-        "(check for `from __future__ import annotations` in forge/tools/rest.py)"
+        "(check for `from __future__ import annotations` in ros/tools/rest.py)"
     )
     # The model-facing schema must NOT advertise runtime as an input.
     assert "runtime" not in (tool.tool_call_schema.model_json_schema().get("properties") or {})

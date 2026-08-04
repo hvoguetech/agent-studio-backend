@@ -10,15 +10,15 @@ from __future__ import annotations
 
 import pytest
 
-from forge.config import settings
-from forge.knowledge import store as store_mod
-from forge.knowledge.pgvector_store import (
+from ros.config import settings
+from ros.knowledge import store as store_mod
+from ros.knowledge.pgvector_store import (
     PgVectorStore,
     _sync_dsn,
     _to_vector_literal,
     _translate_where,
 )
-from forge.knowledge.store import make_store
+from ros.knowledge.store import make_store
 
 
 def test_translate_where_and_eq():
@@ -70,15 +70,15 @@ def test_make_store_defaults_to_chroma(monkeypatch):
     # default backend selects Chroma; stub the ctor so no real on-disk client is built
     monkeypatch.setattr(settings, "vector_backend", "chroma", raising=False)
     marker = object()
-    monkeypatch.setattr(store_mod, "ChromaStore", lambda collection="forge_kb": marker)
-    assert make_store(collection="forge_kb_8") is marker
+    monkeypatch.setattr(store_mod, "ChromaStore", lambda collection="ros_kb": marker)
+    assert make_store(collection="ros_kb_8") is marker
 
 
 def test_make_store_selects_pgvector(monkeypatch):
     monkeypatch.setattr(settings, "vector_backend", "pgvector", raising=False)
     monkeypatch.setattr(settings, "database_url", "postgresql+asyncpg://u:p@h/db", raising=False)
     monkeypatch.setattr(PgVectorStore, "_ensure_schema", lambda self: None)  # skip the DB bootstrap
-    st = make_store(collection="forge_kb_16")
+    st = make_store(collection="ros_kb_16")
     assert isinstance(st, PgVectorStore)
-    assert st._collection == "forge_kb_16"
+    assert st._collection == "ros_kb_16"
     assert st._dsn == "postgresql://u:p@h/db"

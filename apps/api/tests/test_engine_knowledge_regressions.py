@@ -10,11 +10,11 @@ import httpx
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
-from forge.db.base import SessionLocal
-from forge.engine.compiler import compile_workflow
-from forge.engine.context import CompileContext
-from forge.engine.middleware_compiler import _retry_exceptions
-from forge.services.validation import validate_workflow
+from ros.db.base import SessionLocal
+from ros.engine.compiler import compile_workflow
+from ros.engine.context import CompileContext
+from ros.engine.middleware_compiler import _retry_exceptions
+from ros.services.validation import validate_workflow
 
 
 def _ctx() -> CompileContext:
@@ -153,7 +153,7 @@ async def test_guardrail_block_replaces_reply():
 # ---------- knowledge_search builtin ----------
 
 async def test_knowledge_search_builtin_reports_empty_kb():
-    from forge.tools.materialize import materialize_tool
+    from ros.tools.materialize import materialize_tool
 
     tool = materialize_tool({"kind": "builtin", "builtin": "knowledge_search", "name": "kb_search"}, _ctx())
     out = await tool.ainvoke({"query": "anything at all"})
@@ -163,7 +163,7 @@ async def test_knowledge_search_builtin_reports_empty_kb():
 # ---------- KB folders ----------
 
 async def test_source_folders_scope_search_and_listing():
-    from forge.services.knowledge import KnowledgeService
+    from ros.services.knowledge import KnowledgeService
 
     async with SessionLocal() as s:
         a = await KnowledgeService.create_source(
@@ -188,8 +188,8 @@ async def test_source_folders_scope_search_and_listing():
 # ---------- run thread reuse ----------
 
 async def test_create_run_reuses_thread():
-    from forge.services.runs import RunService
-    from forge.services.workflows import WorkflowService
+    from ros.services.runs import RunService
+    from ros.services.workflows import WorkflowService
 
     wf_def = {
         "id": "wf", "version": 1,
@@ -220,7 +220,7 @@ async def test_create_run_reuses_thread():
     # Thread.id - create_run must resolve either to the SAME thread, else memory is not shared.
     from sqlalchemy import select
 
-    from forge.models import Thread
+    from ros.models import Thread
 
     async with SessionLocal() as s:
         lg_id = (await s.execute(select(Thread.lg_thread_id).where(Thread.id == run1.thread_id))).scalar_one()
@@ -233,7 +233,7 @@ async def test_create_run_reuses_thread():
 # ---------- embedder cache ----------
 
 def test_embedder_cache_returns_same_instance_and_right_dims():
-    from forge.knowledge.embeddings import resolve_embedder
+    from ros.knowledge.embeddings import resolve_embedder
 
     a = resolve_embedder("openai:text-embedding-3-small", "sk-test-cache")
     b = resolve_embedder("openai:text-embedding-3-small", "sk-test-cache")
@@ -249,7 +249,7 @@ def test_embedder_cache_returns_same_instance_and_right_dims():
 # ---------- qa kinds multi-filter ----------
 
 async def test_lookup_kinds_list_filters_multiple_categories():
-    from forge.services.knowledge import KnowledgeService
+    from ros.services.knowledge import KnowledgeService
 
     async with SessionLocal() as s:
         await KnowledgeService.create_qa(s, "t_mk", "p_mk", question="alpha question", answer="a", kind="billing")
@@ -271,7 +271,7 @@ async def test_lookup_kinds_list_filters_multiple_categories():
 # ---------- qa custom kinds ----------
 
 async def test_qa_custom_kind_roundtrip_and_lookup_filter():
-    from forge.services.knowledge import KnowledgeService
+    from ros.services.knowledge import KnowledgeService
 
     async with SessionLocal() as s:
         await KnowledgeService.create_qa(s, "t_kind", "p_kind", question="How do I reset the frobnicator?",

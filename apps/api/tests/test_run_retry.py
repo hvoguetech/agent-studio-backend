@@ -11,12 +11,12 @@ import httpx
 from langgraph.checkpoint.memory import InMemorySaver
 from sqlalchemy import select
 
-from forge.db.base import SessionLocal
-from forge.deps import CurrentUser, get_current_user
-from forge.execution.local import LocalBackend
-from forge.main import create_app
-from forge.models import Run, Workflow
-from forge.services.runs import RunService
+from ros.db.base import SessionLocal
+from ros.deps import CurrentUser, get_current_user
+from ros.execution.local import LocalBackend
+from ros.main import create_app
+from ros.models import Run, Workflow
+from ros.services.runs import RunService
 
 _WF = {
     "id": "wf_retry", "version": 1,
@@ -137,7 +137,7 @@ async def test_retry_is_audit_logged():
         assert r.status_code == 200
         assert r.json()["retry_of"] == orig_id
 
-    from forge.services.audit import AuditService
+    from ros.services.audit import AuditService
 
     async with SessionLocal() as s:
         rows = await AuditService.recent(s, "t_ep2")

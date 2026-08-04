@@ -18,17 +18,17 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
-from forge.knowledge.crawl import MAX_DEPTH_CAP, MAX_PAGES_CAP
-from forge.knowledge.embeddings import DEFAULT_MIN_SCORE, DEFAULT_RERANK_MIN_SCORE, _max_input_chars
-from forge.knowledge.store import Hit, citation_for
-from forge.nodes.rag import _passes_floor
-from forge.routers.knowledge import _csv_to_text, _decode_upload, _json_to_text
+from ros.knowledge.crawl import MAX_DEPTH_CAP, MAX_PAGES_CAP
+from ros.knowledge.embeddings import DEFAULT_MIN_SCORE, DEFAULT_RERANK_MIN_SCORE, _max_input_chars
+from ros.knowledge.store import Hit, citation_for
+from ros.nodes.rag import _passes_floor
+from ros.routers.knowledge import _csv_to_text, _decode_upload, _json_to_text
 
 
 def _require_embedder():
     """Return the local BGE embedder or skip (offline / model not cached)."""
     pytest.importorskip("fastembed")
-    from forge.knowledge.embeddings import resolve_embedder
+    from ros.knowledge.embeddings import resolve_embedder
 
     try:
         e = resolve_embedder(None)
@@ -75,7 +75,7 @@ def test_citation_for_prefers_page_then_source():
 
 def test_bm25_build_and_score_match_one_shot():
     pytest.importorskip("rank_bm25")
-    from forge.knowledge.hybrid import bm25_rank, bm25_scores, build_bm25
+    from ros.knowledge.hybrid import bm25_rank, bm25_scores, build_bm25
 
     docs = [
         ("d1", "general refund and shipping policy details"),
@@ -158,8 +158,8 @@ def test_crawl_caps_are_bounded():
 
 
 async def test_crawl_honors_robots_and_max_depth(monkeypatch):
-    import forge.util.ssrf as ssrf
-    from forge.knowledge import crawl as crawl_mod
+    import ros.util.ssrf as ssrf
+    from ros.knowledge import crawl as crawl_mod
 
     class _Resp:
         def __init__(self, text: str, status: int = 200) -> None:
@@ -196,11 +196,11 @@ async def test_offtopic_query_is_floored_and_on_topic_cites(tmp_path):
     _require_embedder()
     from langchain_core.messages import SystemMessage
 
-    from forge.config import settings
-    from forge.db.base import SessionLocal
-    from forge.engine.context import CompileContext
-    from forge.nodes.rag import retrieval_factory
-    from forge.services.knowledge import KnowledgeService
+    from ros.config import settings
+    from ros.db.base import SessionLocal
+    from ros.engine.context import CompileContext
+    from ros.nodes.rag import retrieval_factory
+    from ros.services.knowledge import KnowledgeService
 
     settings.chroma_path = str(tmp_path / "chroma_floor")
     t, p = "t_floor", "p_floor"
@@ -225,9 +225,9 @@ async def test_offtopic_query_is_floored_and_on_topic_cites(tmp_path):
 
 async def test_hybrid_hit_carries_true_cosine_vector_score(tmp_path):
     _require_embedder()
-    from forge.config import settings
-    from forge.db.base import SessionLocal
-    from forge.services.knowledge import KnowledgeService
+    from ros.config import settings
+    from ros.db.base import SessionLocal
+    from ros.services.knowledge import KnowledgeService
 
     settings.chroma_path = str(tmp_path / "chroma_hy_vs")
     t, p = "t_hyvs", "p_hyvs"
@@ -249,9 +249,9 @@ async def test_hybrid_hit_carries_true_cosine_vector_score(tmp_path):
 
 async def test_ingest_persists_source_citation_metadata(tmp_path):
     _require_embedder()
-    from forge.config import settings
-    from forge.db.base import SessionLocal
-    from forge.services.knowledge import KnowledgeService
+    from ros.config import settings
+    from ros.db.base import SessionLocal
+    from ros.services.knowledge import KnowledgeService
 
     settings.chroma_path = str(tmp_path / "chroma_cite")
     t, p = "t_cite", "p_cite"
@@ -270,10 +270,10 @@ async def test_ingest_persists_source_citation_metadata(tmp_path):
 
 async def test_ingest_clamps_chunk_size_to_embedder_limit(tmp_path):
     _require_embedder()
-    from forge.config import settings
-    from forge.db.base import SessionLocal
-    from forge.models import Project
-    from forge.services.knowledge import KnowledgeService
+    from ros.config import settings
+    from ros.db.base import SessionLocal
+    from ros.models import Project
+    from ros.services.knowledge import KnowledgeService
 
     settings.chroma_path = str(tmp_path / "chroma_clamp")
     async with SessionLocal() as s:
@@ -290,9 +290,9 @@ async def test_ingest_clamps_chunk_size_to_embedder_limit(tmp_path):
 
 async def test_memory_recall_similarity_floor(tmp_path):
     _require_embedder()
-    from forge.config import settings
-    from forge.db.base import SessionLocal
-    from forge.services.memory import MemoryService
+    from ros.config import settings
+    from ros.db.base import SessionLocal
+    from ros.services.memory import MemoryService
 
     settings.chroma_path = str(tmp_path / "chroma_memfloor")
     t, p = "t_memf", "p_memf"

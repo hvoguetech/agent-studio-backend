@@ -7,9 +7,9 @@ import time
 
 import pytest
 
-from forge.auth_providers.resolver import AuthResolver
-from forge.db.base import SessionLocal
-from forge.services.auth_providers import AuthProviderService
+from ros.auth_providers.resolver import AuthResolver
+from ros.db.base import SessionLocal
+from ros.services.auth_providers import AuthProviderService
 
 
 async def _provider(tenant: str, project: str) -> str:

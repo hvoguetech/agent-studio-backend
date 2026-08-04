@@ -2,7 +2,7 @@
 
 ## Our commitment
 
-We want Forge to be a welcoming, harassment-free community for everyone, regardless of
+We want ROS to be a welcoming, harassment-free community for everyone, regardless of
 experience level, background, or identity. We are committed to a respectful and
 constructive environment for all contributors and users.
 

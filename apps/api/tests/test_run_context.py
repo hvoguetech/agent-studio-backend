@@ -1,6 +1,6 @@
 """Per-run context injection (Feature: ephemeral per-run `run_context`).
 
-A server-side caller passes an `X-Forge-Context` header on a run's EXECUTION request (stream /
+A server-side caller passes an `X-ROS-Context` header on a run's EXECUTION request (stream /
 resume); its values reach tools as {{ctx.<key>}} for on-behalf-of injection (e.g. a per-user
 API key or tenant identifier). They are NEVER persisted, NEVER placed in the LLM prompt, NEVER an
 LLM-visible arg, and cannot be overridden by an LLM-supplied value.
@@ -17,9 +17,9 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
-from forge.deps import FORGE_CONTEXT_HEADER, run_context
-from forge.engine.context import CompileContext
-from forge.tools.rest import build_args_schema, build_rest_tool, execute_rest
+from ros.deps import ROS_CONTEXT_HEADER, run_context
+from ros.engine.context import CompileContext
+from ros.tools.rest import build_args_schema, build_rest_tool, execute_rest
 
 
 def _capturing_client(sink: dict) -> httpx.AsyncClient:
@@ -239,7 +239,7 @@ async def test_run_context_and_end_user_are_distinct_lanes():
     tool = build_rest_tool(cfg, ctx)
     async with _capturing_client(sink) as client:
         # execute_rest picks its client via select_client; point that at ours.
-        import forge.tools.rest as rest_mod
+        import ros.tools.rest as rest_mod
 
         orig = rest_mod.select_client
         rest_mod.select_client = lambda *a, **k: client  # type: ignore[assignment]
@@ -264,7 +264,7 @@ class _Req:
 
 
 def test_run_context_parses_json_object():
-    r = _Req({FORGE_CONTEXT_HEADER: '{"token": "tok-abc", "tenant": "acme"}'})
+    r = _Req({ROS_CONTEXT_HEADER: '{"token": "tok-abc", "tenant": "acme"}'})
     assert run_context(r) == {"token": "tok-abc", "tenant": "acme"}
 
 
@@ -273,24 +273,24 @@ def test_run_context_absent_is_none():
 
 
 def test_run_context_strips_end_user():
-    r = _Req({FORGE_CONTEXT_HEADER: '{"end_user": {"id": "x"}, "token": "tok-abc"}'})
+    r = _Req({ROS_CONTEXT_HEADER: '{"end_user": {"id": "x"}, "token": "tok-abc"}'})
     assert run_context(r) == {"token": "tok-abc"}  # identity is not settable via this channel
 
 
 def test_run_context_rejects_invalid_json():
     with pytest.raises(HTTPException) as e:
-        run_context(_Req({FORGE_CONTEXT_HEADER: "not-json"}))
+        run_context(_Req({ROS_CONTEXT_HEADER: "not-json"}))
     assert e.value.status_code == 400
 
 
 def test_run_context_rejects_non_object():
     with pytest.raises(HTTPException) as e:
-        run_context(_Req({FORGE_CONTEXT_HEADER: '"just-a-string"'}))
+        run_context(_Req({ROS_CONTEXT_HEADER: '"just-a-string"'}))
     assert e.value.status_code == 400
 
 
 def test_run_context_rejects_oversized():
     big = json.dumps({"x": "a" * 9000})
     with pytest.raises(HTTPException) as e:
-        run_context(_Req({FORGE_CONTEXT_HEADER: big}))
+        run_context(_Req({ROS_CONTEXT_HEADER: big}))
     assert e.value.status_code == 413

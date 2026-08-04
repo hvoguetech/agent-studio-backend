@@ -14,18 +14,18 @@ import uuid
 import httpx
 import pytest
 
-from forge.db.base import SessionLocal
-from forge.main import create_app
-from forge.models import AuthProvider, Component
-from forge.services.agents import AgentService
-from forge.services.components import ComponentService
-from forge.services.portability import PortabilityService
-from forge.services.projects import ProjectService
-from forge.services.tools import ToolService
-from forge.services.versions import VersionService
-from forge.services.workflows import WorkflowService
+from ros.db.base import SessionLocal
+from ros.main import create_app
+from ros.models import AuthProvider, Component
+from ros.services.agents import AgentService
+from ros.services.components import ComponentService
+from ros.services.portability import PortabilityService
+from ros.services.projects import ProjectService
+from ros.services.tools import ToolService
+from ros.services.versions import VersionService
+from ros.services.workflows import WorkflowService
 
-AUTHOR = types.SimpleNamespace(id="u_importer", email="importer@forge.local")
+AUTHOR = types.SimpleNamespace(id="u_importer", email="importer@ros.local")
 
 
 async def _project(session, tenant_id, slug):
@@ -170,16 +170,16 @@ async def test_agent_config_preserved_and_attribution_is_importer():
         }
         agent = await AgentService.create(
             session, tenant, src.id, name="support", config=config,
-            created_by="orig_user", created_by_email="orig@forge.local",
+            created_by="orig_user", created_by_email="orig@ros.local",
         )
         bundle = await PortabilityService.export(session, tenant, src.id, "agent", [agent.id])
-        assert bundle["items"][0]["created_by_email"] == "orig@forge.local"
+        assert bundle["items"][0]["created_by_email"] == "orig@ros.local"
 
         await PortabilityService.import_bundle(session, tenant, dst.id, bundle, author=AUTHOR)
         imported = (await AgentService.list(session, tenant, dst.id))[0]
         assert imported.config == config  # full config verbatim (nothing dropped)
         assert imported.created_by == "u_importer"
-        assert imported.created_by_email == "importer@forge.local"
+        assert imported.created_by_email == "importer@ros.local"
 
 
 async def test_workflow_subworkflow_reference_is_remapped_to_new_ids():

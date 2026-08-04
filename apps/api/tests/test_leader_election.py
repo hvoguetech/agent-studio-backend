@@ -8,8 +8,8 @@ fallback; the live lock/failover is a manual/integration check.
 
 from __future__ import annotations
 
-from forge.config import settings
-from forge.execution.local import LocalBackend, _db_is_postgres
+from ros.config import settings
+from ros.execution.local import LocalBackend, _db_is_postgres
 
 
 def test_db_is_postgres_detection(monkeypatch):

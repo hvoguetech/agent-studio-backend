@@ -1,4 +1,4 @@
-"""Forge-as-an-MCP-server over the Streamable-HTTP transport.
+"""ROS-as-an-MCP-server over the Streamable-HTTP transport.
 
 The headline test drives the endpoint with the REAL `mcp` SDK client (the same protocol Claude
 Desktop / Cursor / VS Code speak), routed at the in-process ASGI app — proving a native client can
@@ -13,13 +13,13 @@ import json
 
 import httpx
 
-from forge.db.base import SessionLocal
-from forge.main import create_app
-from forge.models import Project, Tool
+from ros.db.base import SessionLocal
+from ros.main import create_app
+from ros.models import Project, Tool
 
 
 async def _seed_project_with_tool(tenant="t_stream", slug="mcp-stream", config=None) -> str:
-    from forge.services.tool_sets import ToolSetService
+    from ros.services.tool_sets import ToolSetService
 
     async with SessionLocal() as s:
         proj = Project(tenant_id=tenant, name="Stream Proj", slug=slug, config=config or {})
@@ -60,7 +60,7 @@ async def test_streamable_real_mcp_client_end_to_end():
     async with streamablehttp_client(url, httpx_client_factory=_asgi_httpx_factory(app)) as (read, write, _sid):
         async with ClientSession(read, write) as session:
             init = await session.initialize()
-            assert init.serverInfo.name.startswith("forge-")
+            assert init.serverInfo.name.startswith("ros-")
 
             tools = await session.list_tools()
             assert "calculator" in [t.name for t in tools.tools]
@@ -93,7 +93,7 @@ async def test_streamable_post_negotiates_sse():
     assert r.status_code == 200
     assert "text/event-stream" in r.headers["content-type"]
     payload = _parse_sse_json(r.text)
-    assert payload["result"]["serverInfo"]["name"].startswith("forge-")
+    assert payload["result"]["serverInfo"]["name"].startswith("ros-")
 
 
 async def test_plain_json_post_still_uses_legacy_json():

@@ -1,6 +1,6 @@
-# Forge API
+# ROS API
 
-FastAPI backend for **Forge** - the self-hosted agent platform. Built directly on the
+FastAPI backend for **ROS** - the self-hosted agent platform. Built directly on the
 MIT-licensed LangChain v1 + LangGraph v1 framework. **Never** depends on `langgraph-api`
 (Elastic 2.0) or LangSmith (commercial).
 
@@ -24,7 +24,7 @@ pip install -e ".[dev]"           # core + test deps only
 pip install -e ".[dev,all]"       # full local stack (vectors + providers + knowledge + MCP)
 
 cp ../../.env.example .env
-uvicorn forge.main:app --reload --port 8000
+uvicorn ros.main:app --reload --port 8000
 pytest                            # validate the engine
 ```
 
@@ -32,7 +32,7 @@ pytest                            # validate the engine
 
 ```
 apps/api/
-  forge/
+  ros/
     main.py              FastAPI app factory + lifespan (DB init, checkpointer, scheduler/reaper)
     config.py            Settings (pydantic-settings, env-driven) + production hardening guard
     deps.py              FastAPI dependencies: session, auth/tenant resolution, RBAC
@@ -53,7 +53,7 @@ apps/api/
     secrets/             Fernet-encrypted, reference-only secret store
     channels/            email deployment surface
     knowledge/           EmbeddingStore (Chroma), ingestion/crawl, splitter, hybrid + rerank
-    tracing/             ForgeTracer callback + span sink + pricing + tool-I/O capture
+    tracing/             ROSTracer callback + span sink + pricing + tool-I/O capture
     util/                cross-cutting helpers (SSRF guard, http client, rate limit, mailer, ...)
     assistant_skills/    skill(s) the in-product build assistant loads
   migrations/            Alembic migrations (prod schema path; SQLite auto-creates in dev)

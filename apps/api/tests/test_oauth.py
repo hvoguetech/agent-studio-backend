@@ -6,11 +6,11 @@ import time
 
 import httpx
 
-from forge.auth_providers.resolver import AuthResolver
-from forge.db.base import SessionLocal
-from forge.models import AuthProvider
-from forge.secrets.store import SecretStore
-from forge.security import create_state_token, decode_token
+from ros.auth_providers.resolver import AuthResolver
+from ros.db.base import SessionLocal
+from ros.models import AuthProvider
+from ros.secrets.store import SecretStore
+from ros.security import create_state_token, decode_token
 
 _CFG = {
     "kind": "oauth2_authorization_code",
@@ -76,7 +76,7 @@ async def test_bearer_tolerates_stale_credentials_ref():
 
 async def test_secret_usage_finds_references():
     """The pre-delete guard must surface entities that reference a secret (here, an auth provider)."""
-    from forge.services.secrets import SecretService
+    from ros.services.secrets import SecretService
     async with SessionLocal() as s:
         s.add(AuthProvider(
             id="ap_use", tenant_id="t_u", project_id="p_u", name="shared", kind="bearer",

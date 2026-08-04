@@ -1,6 +1,6 @@
 <div align="center">
 
-# Forge
+# ROS
 
 **The open-source, self-hosted platform for visually building, testing, and shipping AI agents & workflows.**
 
@@ -17,7 +17,7 @@ Wire agents, tools, knowledge, and logic on a canvas - ground them in your data,
 
 ---
 
-Forge is built directly on the **MIT-licensed LangChain v1 + LangGraph v1** framework - and **never** depends on `langgraph-api` (Elastic 2.0) or LangSmith (commercial). Everything you orchestrate runs on your own infrastructure; nothing is sent to a third-party orchestration service.
+ROS is built directly on the **MIT-licensed LangChain v1 + LangGraph v1** framework - and **never** depends on `langgraph-api` (Elastic 2.0) or LangSmith (commercial). Everything you orchestrate runs on your own infrastructure; nothing is sent to a third-party orchestration service.
 
 - **Fully open source (MIT).** No proprietary core, no usage caps, no vendor lock-in.
 - **Zero-infra local dev.** Boots on SQLite + embedded Chroma + an in-process scheduler - no Docker, Postgres, or Redis required to start.
@@ -41,7 +41,7 @@ Forge is built directly on the **MIT-licensed LangChain v1 + LangGraph v1** fram
   <video src="https://github.com/user-attachments/assets/798a6872-0a47-455f-81be-4566184e3e9c" controls muted width="85%"></video>
 </div>
 
-> **[Watch the demo](docs/media/Forge_demo.mp4)** - the in-product **Forge Assistant** builds and runs a workflow end to end. *(If the player doesn't load inline, click the link to play.)*
+> **[Watch the demo](docs/media/ROS_demo.mp4)** - the in-product **ROS Assistant** builds and runs a workflow end to end. *(If the player doesn't load inline, click the link to play.)*
 
 ### Analytics
 <div align="center">
@@ -50,14 +50,14 @@ Forge is built directly on the **MIT-licensed LangChain v1 + LangGraph v1** fram
 
 ### Tool Builder with Response Projection
 
-Register **REST, GraphQL, Code, SQL, MCP, or built-in** tools and test them live against real inputs. A **JMESPath response projection** trims bulky payloads *before* they reach the model - watch the raw → projected **token meter** shrink in real time to control cost. Every outbound call is screened by an **SSRF guard**, with optional retries, rate limits, and caching. Point a tool's endpoint at a **per-environment value** with `{{env.*}}` (from `FORGE_TOOL_VARS`) so the same tool row resolves to your dev / qa / prod host per deploy. The platform **built-ins** (time, calculator, web fetch/search, knowledge search, memory) are auto-provisioned into every project and protected from deletion. Organize tools into **tool sets** - reusable, many-to-many groups that double as folders on the screen, get granted to an agent in one click, and publish as MCP toolsets.
+Register **REST, GraphQL, Code, SQL, MCP, or built-in** tools and test them live against real inputs. A **JMESPath response projection** trims bulky payloads *before* they reach the model - watch the raw → projected **token meter** shrink in real time to control cost. Every outbound call is screened by an **SSRF guard**, with optional retries, rate limits, and caching. Point a tool's endpoint at a **per-environment value** with `{{env.*}}` (from `ROS_TOOL_VARS`) so the same tool row resolves to your dev / qa / prod host per deploy. The platform **built-ins** (time, calculator, web fetch/search, knowledge search, memory) are auto-provisioned into every project and protected from deletion. Organize tools into **tool sets** - reusable, many-to-many groups that double as folders on the screen, get granted to an agent in one click, and publish as MCP toolsets.
 
 <div align="center">
   <video src="https://github.com/user-attachments/assets/6fc6cedc-f01f-421d-ad44-6299d0a1646e" controls muted width="85%"></video>
 </div>
 The Tools screen groups everything by set (switchable between grid and list), with one-click **export / import** to move tools between projects:
 
-<p align="center"><img src="docs/media/Tools_dashboard.png" alt="Forge Tools screen: the tool grid grouped into reusable tool sets, with grid/list views and one-click export and import" width="90%"></p>
+<p align="center"><img src="docs/media/Tools_dashboard.png" alt="ROS Tools screen: the tool grid grouped into reusable tool sets, with grid/list views and one-click export and import" width="90%"></p>
 
 ### Visual Agent Builder
 
@@ -73,35 +73,35 @@ Wire an entire app on a **drag-and-drop canvas** (React Flow): drop nodes from t
 <div align="center">
   <video src="https://github.com/user-attachments/assets/d2e7f826-6844-4f92-8975-b1513e2fd8e9" controls muted width="85%"></video>
 </div>
-<p align="center"><img src="docs/media/Workflow.png" alt="Forge visual workflow builder: a React Flow canvas wiring retrieval, router, agent, and end nodes, with a node palette, a state-schema inspector, and a minimap" width="90%"></p>
+<p align="center"><img src="docs/media/Workflow.png" alt="ROS visual workflow builder: a React Flow canvas wiring retrieval, router, agent, and end nodes, with a node palette, a state-schema inspector, and a minimap" width="90%"></p>
 
 ### Knowledge & RAG
 
-Ground agents in **your own data**. Add pasted text, URLs, crawled sites, or uploaded files (`.txt/.md/.csv/.json/.html/.pdf`); Forge chunks, embeds (**offline-capable by default**), and stores them as vectors organized in folders. Curated **Q&A pairs** deflect common questions, and a **search debugger** lets you inspect exactly what retrieval returns.
+Ground agents in **your own data**. Add pasted text, URLs, crawled sites, or uploaded files (`.txt/.md/.csv/.json/.html/.pdf`); ROS chunks, embeds (**offline-capable by default**), and stores them as vectors organized in folders. Curated **Q&A pairs** deflect common questions, and a **search debugger** lets you inspect exactly what retrieval returns.
 
-<p align="center"><img src="docs/media/Knowledge.png" alt="Forge knowledge screen showing document sources, folders, chunking status, and Q&A" width="90%"></p>
+<p align="center"><img src="docs/media/Knowledge.png" alt="ROS knowledge screen showing document sources, folders, chunking status, and Q&A" width="90%"></p>
 
 The built-in **search debugger** plots every chunk by semantic similarity and overlays a query - so you can see exactly which chunks a search retrieves, and why:
 
-<p align="center"><img src="docs/media/Knowledge_storage_debugger.png" alt="Forge knowledge search debugger: a PCA chunk map colored by source, with a query overlay marking the retrieved chunks" width="90%"></p>
+<p align="center"><img src="docs/media/Knowledge_storage_debugger.png" alt="ROS knowledge search debugger: a PCA chunk map colored by source, with a query overlay marking the retrieved chunks" width="90%"></p>
 
 ### Generative UI Components
 
 Let agents render **rich, interactive UI** - tables, cards, forms - instead of plain text. Author an HTML/CSS component once with a live preview; the model emits a tiny payload while the markup renders in a **sandboxed iframe** and never bloats the token stream. Buttons can send structured actions straight back to the agent.
 
-<p align="center"><img src="docs/media/Components.png" alt="Forge component builder with HTML/CSS editor and a live sandboxed preview of a weather card" width="90%"></p>
+<p align="center"><img src="docs/media/Components.png" alt="ROS component builder with HTML/CSS editor and a live sandboxed preview of a weather card" width="90%"></p>
 
 ### Embeddable Web Widget
 
 Drop your assistant onto **any website** with a one-line script - a floating chat bubble locked to the origins you allow. End users see only the conversation; operational details (steps, tokens, cost, node names) stay private in the dashboard.
 
-<p align="center"><img src="docs/media/Embeddings.png" alt="Forge embed screen with widget toggle, allowed origins, and a copy-paste launcher snippet" width="90%"></p>
+<p align="center"><img src="docs/media/Embeddings.png" alt="ROS embed screen with widget toggle, allowed origins, and a copy-paste launcher snippet" width="90%"></p>
 
 ### Deploy anywhere - one run API, MCP & channels
 
-Ship the same workflow through many surfaces without rewriting it: call it server-to-server over a **single run API** (`POST /run` handles new turns, streaming, and human-in-the-loop resumes), expose it as an **MCP server**, deploy it to **email**, or drop in the **web widget**. Per-request caller context (`X-Forge-Context`) lets tools act on behalf of your end users - with secrets never in the request body.
+Ship the same workflow through many surfaces without rewriting it: call it server-to-server over a **single run API** (`POST /run` handles new turns, streaming, and human-in-the-loop resumes), expose it as an **MCP server**, deploy it to **email**, or drop in the **web widget**. Per-request caller context (`X-ROS-Context`) lets tools act on behalf of your end users - with secrets never in the request body.
 
-<p align="center"><img src="docs/media/Integrations.png" alt="Forge Connect screen showing the run API: the Forge API base URL, the POST /run endpoint, and a copy-paste curl example" width="90%"></p>
+<p align="center"><img src="docs/media/Integrations.png" alt="ROS Connect screen showing the run API: the ROS API base URL, the POST /run endpoint, and a copy-paste curl example" width="90%"></p>
 
 > [!NOTE]
 > **Connectors are not yet fully implemented.** The prebuilt, one-click **connector library / marketplace** (Google, Slack, Notion, GitHub, Salesforce, …) is on the [roadmap](docs/ROADMAP.md#planned--exploring) — it is **not shipped yet**. Today you integrate an external system by hand: create a **REST / GraphQL / MCP tool** and pair it with an **Auth Provider** (Bearer / API key / Basic / OAuth2 / CSRF-session). *(Note: the `connector` **role** — a least-privileged MCP-only user — is a separate, shipped feature and unrelated to the connector library.)*
@@ -110,13 +110,13 @@ Ship the same workflow through many surfaces without rewriting it: call it serve
 
 Every run is captured as a **collapsible span tree** - model calls, tools, chains, sub-agents, latency, tokens, and **cost**, nested by real parent/child so you can see exactly what happened and what it cost. Deep-agent dispatches appear as named `subagent · <name>` spans, and the Playground streams a **live agent-activity** timeline (which sub-agent/tool ran, as it happens). Pair it with **Evaluations** to catch regressions before you publish, and export traces to any **OpenTelemetry** collector (e.g. Langfuse).
 
-<p align="center"><img src="docs/media/Traces.png" alt="Forge traces screen showing a run's span waterfall with per-step latency, tokens, and cost" width="90%"></p>
+<p align="center"><img src="docs/media/Traces.png" alt="ROS traces screen showing a run's span waterfall with per-step latency, tokens, and cost" width="90%"></p>
 
 ### Guardrails, budgets & governance
 
 Run it like production. A project-level **Guardrails & Egress** policy (PII redaction, blocked terms, and a network allow/deny list) applies to every agent by default; **budgets & quotas** cap spend and tokens; **versioning** snapshots every change; and it all sits behind per-project **roles / RBAC** and an audit log - from one Settings surface.
 
-<p align="center"><img src="docs/media/Settings.png" alt="Forge project Settings with a section sidebar: General, Members and Roles, API Keys, Model Pricing, Budgets and Quotas, Guardrails and Egress, Versioning, and more" width="90%"></p>
+<p align="center"><img src="docs/media/Settings.png" alt="ROS project Settings with a section sidebar: General, Members and Roles, API Keys, Model Pricing, Budgets and Quotas, Guardrails and Egress, Versioning, and more" width="90%"></p>
 
 ### And many more
 
@@ -139,7 +139,7 @@ Run it like production. A project-level **Guardrails & Egress** policy (PII reda
 A pnpm + Python monorepo with a shared schema contract that keeps the backend and frontend in lockstep:
 
 ```
-forge/
+ros/
 ├── apps/
 │   ├── api/        FastAPI backend - the engine (compiler, registry, middleware), tools,
 │   │              auth, knowledge, tracing, MCP server, build assistant. Dockerfile +
@@ -180,7 +180,7 @@ cd apps/api
 python -m venv .venv && source .venv/bin/activate     # .venv\Scripts\activate on Windows
 pip install -e ".[dev,all]"                            # engine + tests + vectors/providers/knowledge/MCP
 pytest                                                 # optional: validate the engine (offline)
-uvicorn forge.main:app --reload --port 8000            # http://localhost:8000/docs
+uvicorn ros.main:app --reload --port 8000            # http://localhost:8000/docs
 ```
 
 ### 3. Frontend (Next.js console)
@@ -192,18 +192,18 @@ pnpm install
 pnpm --filter web dev                                  # http://localhost:3000
 ```
 
-Open **http://localhost:3000** for the console and **http://localhost:8000/docs** for the API. On first run, sign in with `you@forge.local` / `forge-admin`, or create a fresh workspace.
+Open **http://localhost:3000** for the console and **http://localhost:8000/docs** for the API. On first run, sign in with `you@ros.local` / `ros-admin`, or create a fresh workspace.
 
 ## Run with Docker (production-shaped)
 
 The included [`docker-compose.yml`](docker-compose.yml) brings up a production-shaped stack - **Postgres** (app DB + durable checkpointer), **Redis** (shared rate-limit/idempotency + worker queue), the **API**, a **worker**, and the **web** console:
 
 ```bash
-# Set real secrets first (FORGE_JWT_SECRET, FORGE_BOOTSTRAP_ADMIN_PASSWORD, provider keys)
+# Set real secrets first (ROS_JWT_SECRET, ROS_BOOTSTRAP_ADMIN_PASSWORD, provider keys)
 docker compose up --build
 ```
 
-With `FORGE_ENVIRONMENT=production`, Forge enables a hardening guard and **refuses to boot** with default secrets, SQLite, or a non-durable checkpointer. See [`apps/api/README.md`](apps/api/README.md) and **[Manual §13 - Going to production](docs/MANUAL.md)** for the full, annotated configuration.
+With `ROS_ENVIRONMENT=production`, ROS enables a hardening guard and **refuses to boot** with default secrets, SQLite, or a non-durable checkpointer. See [`apps/api/README.md`](apps/api/README.md) and **[Manual §13 - Going to production](docs/MANUAL.md)** for the full, annotated configuration.
 
 ## Documentation
 
@@ -229,10 +229,10 @@ With `FORGE_ENVIRONMENT=production`, Forge enables a hardening guard and **refus
 
 ## Contributing
 
-Contributions are welcome. Forge is MIT-licensed and built to be extended.
+Contributions are welcome. ROS is MIT-licensed and built to be extended.
 
 1. Fork the repo and create a feature branch.
-2. Backend changes: run `pytest` and `ruff check forge migrations` from `apps/api`.
+2. Backend changes: run `pytest` and `ruff check ros migrations` from `apps/api`.
 3. Keep the **shared schemas** (`packages/schemas`) authoritative - the validator, compiler, and frontend forms all read from them.
 4. Open a pull request describing the change and the reasoning.
 
@@ -240,7 +240,7 @@ Found a bug or have an idea? Please [open an issue](https://github.com/marutsing
 
 ## License
 
-Forge is released under the **[MIT License](LICENSE)** - free to use, modify, and distribute, including commercially. It builds only on the MIT-licensed LangChain/LangGraph ecosystem, with no Elastic-2.0 or commercial-license dependencies.
+ROS is released under the **[MIT License](LICENSE)** - free to use, modify, and distribute, including commercially. It builds only on the MIT-licensed LangChain/LangGraph ecosystem, with no Elastic-2.0 or commercial-license dependencies.
 
 <div align="center">
 <sub>Built on the open-source LangChain and LangGraph ecosystem.</sub>

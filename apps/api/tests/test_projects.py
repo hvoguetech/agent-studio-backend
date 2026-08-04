@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from sqlalchemy import func, select
 
-from forge.db.base import SessionLocal
-from forge.models import (
+from ros.db.base import SessionLocal
+from ros.models import (
     Agent,
     AuthProvider,
     Component,
@@ -21,7 +21,7 @@ from forge.models import (
     Trace,
     Workflow,
 )
-from forge.services.projects import ProjectService
+from ros.services.projects import ProjectService
 
 
 async def _count(session, model, **where) -> int:
@@ -57,7 +57,7 @@ async def test_project_counts_are_scoped_to_project():
         # ProjectService.create auto-provisions the platform built-ins, so each project starts with
         # len(BUILTIN_DEFAULTS) tools before the 3 added here. Scoping still holds: `other`'s tool
         # (and its own provisioned built-ins) are not counted for `proj`.
-        from forge.tools.builtin import BUILTIN_DEFAULTS
+        from ros.tools.builtin import BUILTIN_DEFAULTS
         counts = await ProjectService.counts(session, tenant_id, proj.id)
         assert counts == {
             "workflows": 2, "agents": 1, "tools": 3 + len(BUILTIN_DEFAULTS),

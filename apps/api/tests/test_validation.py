@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 
-from forge.services.validation import validate_workflow
+from ros.services.validation import validate_workflow
 
 GOOD = {
     "id": "wf_ok",

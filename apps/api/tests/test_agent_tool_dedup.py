@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from forge.nodes.agent_node import _dedup_tools_by_name
+from ros.nodes.agent_node import _dedup_tools_by_name
 
 
 def test_dedup_keeps_first_occurrence_by_name():

@@ -6,12 +6,12 @@ import uuid
 
 import httpx
 
-from forge.db.base import SessionLocal
-from forge.main import create_app
-from forge.models import Project, Tool, User
-from forge.services.runtime import build_compile_context
-from forge.services.tool_sets import ToolSetService
-from forge.services.tools import ToolService
+from ros.db.base import SessionLocal
+from ros.main import create_app
+from ros.models import Project, Tool, User
+from ros.services.runtime import build_compile_context
+from ros.services.tool_sets import ToolSetService
+from ros.services.tools import ToolService
 
 
 async def _seed(tenant: str, slug: str) -> tuple[str, str, str]:
@@ -213,9 +213,9 @@ async def test_mcp_no_toolsets_exposes_nothing():
 
 
 async def test_mcp_session_token_authorizes_as_end_user():
-    """A project-scoped Forge session token authenticates an MCP caller AS its end_user
+    """A project-scoped ROS session token authenticates an MCP caller AS its end_user
     (the portable per-user identity channel), alongside the shared project key."""
-    from forge.security import create_session_token
+    from ros.security import create_session_token
 
     tenant = "t_mcp_sess"
     async with SessionLocal() as s:
@@ -244,8 +244,8 @@ async def test_mcp_session_token_authorizes_as_end_user():
 
 
 async def test_mcp_personal_access_token_authorizes_as_user():
-    """A per-user Personal Access Token (forge_pat_) authenticates an MCP client as that user."""
-    from forge.services.apikeys import ApiKeyService
+    """A per-user Personal Access Token (ros_pat_) authenticates an MCP client as that user."""
+    from ros.services.apikeys import ApiKeyService
 
     tenant = "t_mcp_pat"
     async with SessionLocal() as s:
@@ -291,7 +291,7 @@ async def test_mcp_token_api_crud():
         r = await c.post(f"/v1/projects/{pid}/mcp-tokens", json={"name": "my token"})
         assert r.status_code == 201, r.text
         tok = r.json()
-        assert tok["token"].startswith("forge_pat_") and tok["status"] == "active"
+        assert tok["token"].startswith("ros_pat_") and tok["status"] == "active"
 
         body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
         # the freshly minted PAT authenticates against the MCP endpoint (auth is enforced by the key)
@@ -308,7 +308,7 @@ async def test_mcp_token_api_crud():
 
 async def test_connector_role_is_mcp_only():
     """A 'connector' user can manage their own MCP tokens but cannot mutate project resources."""
-    from forge.security import create_access_token
+    from ros.security import create_access_token
 
     tenant = "t_conn_role"
     async with SessionLocal() as s:
@@ -330,4 +330,4 @@ async def test_connector_role_is_mcp_only():
         # but can mint their own MCP personal access token
         r = await c.post(f"/v1/projects/{pid}/mcp-tokens", json={"name": "my token"})
         assert r.status_code == 201, r.text
-        assert r.json()["token"].startswith("forge_pat_")
+        assert r.json()["token"].startswith("ros_pat_")

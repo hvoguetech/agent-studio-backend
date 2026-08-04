@@ -3,10 +3,10 @@ and chunk_size/overlap sourced from the project's rag_defaults)."""
 
 from __future__ import annotations
 
-from forge.db.base import SessionLocal
-from forge.knowledge.splitter import chunk_text
-from forge.models import Project
-from forge.services.knowledge import KnowledgeService
+from ros.db.base import SessionLocal
+from ros.knowledge.splitter import chunk_text
+from ros.models import Project
+from ros.services.knowledge import KnowledgeService
 
 # --- pure splitter behavior ---
 
@@ -79,7 +79,7 @@ async def _make_project(slug: str, rag_defaults: dict) -> str:
 
 
 async def test_ingest_uses_project_default_strategy(tmp_path):
-    from forge.config import settings
+    from ros.config import settings
 
     settings.chroma_path = str(tmp_path / "chroma")
     pid = await _make_project("chunk-default-section", {"chunking_strategy": "section"})
@@ -94,7 +94,7 @@ async def test_ingest_uses_project_default_strategy(tmp_path):
 
 
 async def test_source_strategy_overrides_project_default(tmp_path):
-    from forge.config import settings
+    from ros.config import settings
 
     settings.chroma_path = str(tmp_path / "chroma2")
     pid = await _make_project("chunk-override", {"chunking_strategy": "section"})
@@ -108,7 +108,7 @@ async def test_source_strategy_overrides_project_default(tmp_path):
 
 
 async def test_ingest_reads_chunk_size_from_rag_defaults(tmp_path):
-    from forge.config import settings
+    from ros.config import settings
 
     settings.chroma_path = str(tmp_path / "chroma3")
     pid = await _make_project("chunk-size", {"chunk_size": 120, "chunk_overlap": 20, "chunking_strategy": "recursive"})

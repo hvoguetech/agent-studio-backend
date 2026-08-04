@@ -1,4 +1,4 @@
-"""Per-environment endpoint substitution ({{env.*}} from FORGE_TOOL_VARS / settings.tool_vars).
+"""Per-environment endpoint substitution ({{env.*}} from ROS_TOOL_VARS / settings.tool_vars).
 
 A tool/auth endpoint template references {{env.<key>}}; the value is supplied per environment via
 the tool_vars setting, so the SAME tool DB row resolves to a different real host in dev/qa/prod.
@@ -11,11 +11,11 @@ import json
 import httpx
 import pytest
 
-import forge.tools.graphql as gql_mod
-import forge.tools.rest as rest_mod
-from forge.auth_providers.templates import MissingTemplateVar
-from forge.tools.graphql import execute_graphql
-from forge.tools.rest import execute_rest
+import ros.tools.graphql as gql_mod
+import ros.tools.rest as rest_mod
+from ros.auth_providers.templates import MissingTemplateVar
+from ros.tools.graphql import execute_graphql
+from ros.tools.rest import execute_rest
 
 
 def _capturing_client(sink: dict) -> httpx.AsyncClient:

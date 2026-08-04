@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "forge-api"
+name = "ros-api"
 version = "0.1.0"
-description = "Forge - self-hosted platform for visually building, testing, and shipping LangChain/LangGraph agents & workflows."
+description = "ROS - self-hosted platform for visually building, testing, and shipping LangChain/LangGraph agents & workflows."
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 
@@ -67,7 +67,7 @@ mcp = ["langchain-mcp-adapters>=0.2,<1", "mcp>=1.9", "fastmcp>=3,<4"]
 # croniter powers cron `schedule` triggers (interval schedules need nothing extra).
 workers = ["redis>=5,<9", "arq>=0.26,<1", "croniter>=2,<7"]
 # Durable Postgres checkpointer + async driver (prod run/HITL state, shared across workers).
-# Set FORGE_CHECKPOINT_BACKEND=postgres and FORGE_DATABASE_URL to a postgresql+asyncpg URL.
+# Set ROS_CHECKPOINT_BACKEND=postgres and ROS_DATABASE_URL to a postgresql+asyncpg URL.
 postgres = ["langgraph-checkpoint-postgres>=2,<5", "psycopg[binary,pool]>=3.2", "asyncpg>=0.30"]
 # OpenTelemetry export (point at an OTLP collector or Langfuse). Opt-in: no-op if absent.
 observability = [
@@ -80,7 +80,7 @@ knowledge = ["langchain-text-splitters>=1,<2", "pypdf>=5", "beautifulsoup4>=4.12
 # One-shot convenience for a fully-functional local app: vector store + model providers
 # + knowledge loaders + MCP. Excludes prod-only infra (workers, observability), which
 # the local stack fakes in-process. Install with: pip install -e ".[dev,all]"
-all = ["forge-api[vectors,providers,knowledge,mcp]"]
+all = ["ros-api[vectors,providers,knowledge,mcp]"]
 dev = [
   "pytest>=8.3,<10",
   "pytest-asyncio>=0.24,<2",
@@ -92,7 +92,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["forge"]
+packages = ["ros"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

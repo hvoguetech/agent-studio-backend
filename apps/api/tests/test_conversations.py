@@ -9,10 +9,10 @@ import httpx
 from langgraph.checkpoint.memory import InMemorySaver
 from sqlalchemy import select
 
-from forge.db.base import SessionLocal
-from forge.main import create_app
-from forge.models import Span, Trace
-from forge.services.conversations import ConversationService
+from ros.db.base import SessionLocal
+from ros.main import create_app
+from ros.models import Span, Trace
+from ros.services.conversations import ConversationService
 
 TENANT = "t_conv"
 
@@ -199,7 +199,7 @@ async def test_run_captures_source_and_transcript_end_to_end():
         await c.patch(f"/v1/projects/{pid}", json={"config": {"api_workflow_id": wid}}, headers=h)
 
         r = await c.post(f"/v1/projects/{pid}/run",
-                         json={"input": {"messages": [{"role": "user", "content": "what is forge"}]}, "stream": False},
+                         json={"input": {"messages": [{"role": "user", "content": "what is ros"}]}, "stream": False},
                          headers=h)
         assert r.status_code == 200, r.text
 
@@ -208,11 +208,11 @@ async def test_run_captures_source_and_transcript_end_to_end():
         conv = convos[0]
         assert conv["source"] == "api"
         assert conv["actor"] == "Unknown user"          # /run with no end_user identity
-        assert conv["preview"] == "what is forge"
+        assert conv["preview"] == "what is ros"
 
         detail = (await c.get(f"/v1/projects/{pid}/conversations/{conv['thread_id']}", headers=h)).json()
         turn = detail["turns"][0]
-        assert turn["user_message"] == "what is forge"
+        assert turn["user_message"] == "what is ros"
         assert "Hi there!" in (turn["ai_response"] or "")
         # the AI-response click drills into the existing span waterfall by trace id
         assert turn["trace_id"]

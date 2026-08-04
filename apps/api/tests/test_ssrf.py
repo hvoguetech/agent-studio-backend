@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from forge.util.ssrf import EgressBlocked, EgressPolicy, validate_url
+from ros.util.ssrf import EgressBlocked, EgressPolicy, validate_url
 
 _BLOCK = EgressPolicy(block_private=True)
 

@@ -24,7 +24,7 @@ jobs:
           enable-cache: true
 
       - name: Lint (ruff)
-        run: uv run --extra dev ruff check forge tests
+        run: uv run --extra dev ruff check ros tests
 
       - name: Test (pytest)
         # --extra all pulls the optional providers/knowledge/vectors so the full suite imports;

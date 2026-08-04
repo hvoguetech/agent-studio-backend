@@ -15,18 +15,18 @@ import uuid
 import httpx
 import pytest
 
-from forge.services.runtime import make_runtime_ctx
-from forge.tools import rest as rest_mod
-from forge.tools.graphql import GraphQLToolError, execute_graphql
-from forge.tools.materialize import materialize_tool
-from forge.tools.projection import project_response
-from forge.tools.rest import _resolve_retry, _retry_types, _should_retry, execute_rest
-from forge.tools.sql import SqlToolError, execute_sql
+from ros.services.runtime import make_runtime_ctx
+from ros.tools import rest as rest_mod
+from ros.tools.graphql import GraphQLToolError, execute_graphql
+from ros.tools.materialize import materialize_tool
+from ros.tools.projection import project_response
+from ros.tools.rest import _resolve_retry, _retry_types, _should_retry, execute_rest
+from ros.tools.sql import SqlToolError, execute_sql
 
 
 @pytest.fixture(autouse=True)
 def _enable_code_tools(monkeypatch):
-    from forge.config import settings
+    from ros.config import settings
 
     monkeypatch.setattr(settings, "enable_code_tools", True)
 
@@ -243,7 +243,7 @@ async def test_code_entitlement_denied():
 
 
 async def test_component_entitlement_denied():
-    from forge.tools.components import build_component_tool
+    from ros.tools.components import build_component_tool
 
     ctx = _ctx_without()
     cfg = {"id": "c1", "name": "chart", "props_schema": {}, "required_entitlements": ["billing:read"]}
@@ -343,8 +343,8 @@ async def test_download_size_guard_marks_oversized_body(monkeypatch):
 
 
 def test_trace_redaction_defaults_on_in_production(monkeypatch):
-    from forge.config import settings
-    from forge.tracing import tool_io
+    from ros.config import settings
+    from ros.tracing import tool_io
 
     monkeypatch.setattr(settings, "trace_tool_io_redact", False)
     # Dev + flag off => values pass through.

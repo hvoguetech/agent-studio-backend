@@ -1,9 +1,9 @@
 """Client-IP trust rule (anti-spoofing): X-Forwarded-For is believed ONLY from a configured
-reverse proxy, so a directly-connected client cannot forge its IP for per-IP rate limits or
+reverse proxy, so a directly-connected client cannot ros its IP for per-IP rate limits or
 audit logs. Covers both call sites (deps.client_ip and the audit middleware) via the shared
 helper they now both use."""
 
-from forge.util.clientip import resolve_client_ip
+from ros.util.clientip import resolve_client_ip
 
 
 def test_no_trusted_proxies_ignores_xff():

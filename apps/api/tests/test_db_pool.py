@@ -6,8 +6,8 @@ from __future__ import annotations
 
 from sqlalchemy.pool import NullPool
 
-from forge.config import settings
-from forge.db.base import _pool_kwargs
+from ros.config import settings
+from ros.db.base import _pool_kwargs
 
 
 def test_sqlite_uses_nullpool():

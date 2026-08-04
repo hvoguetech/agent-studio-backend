@@ -1,7 +1,7 @@
 """Tool-I/O capture for traces.
 
 A REST tool records its FRAMED request (resolved URL, query, headers/cookies templated
-from {{ctx.*}}) plus the response into a context var; the ForgeTracer reads it back onto
+from {{ctx.*}}) plus the response into a context var; the ROSTracer reads it back onto
 the tool span. This is what makes a run-time "works in test, 401s in a run" visible: the
 capture runs on failure too, so a dropped ctx cookie / a 401 shows up in the trace.
 """
@@ -13,10 +13,10 @@ import uuid
 import httpx
 import pytest
 
-from forge.config import settings
-from forge.tools.rest import execute_rest
-from forge.tracing import tool_io
-from forge.tracing.tracer import ForgeTracer
+from ros.config import settings
+from ros.tools.rest import execute_rest
+from ros.tracing import tool_io
+from ros.tracing.tracer import ROSTracer
 
 
 def _cfg(**extra) -> dict:
@@ -111,7 +111,7 @@ async def test_disabled_capture_is_a_noop(monkeypatch):
 def test_tracer_attaches_matching_record_to_tool_span():
     """on_tool_end merges a record whose name matches the span's tool."""
     tool_io.clear_tool_io()
-    tr = ForgeTracer()
+    tr = ROSTracer()
     rid = uuid.uuid4()
     tr.on_tool_start({"name": "fetch_item"}, '{"id": "1"}', run_id=rid)
     tool_io.set_tool_io("fetch_item", request={"method": "GET", "url": "u"}, response={"status": 200})
@@ -123,8 +123,8 @@ def test_tracer_attaches_matching_record_to_tool_span():
 
 def test_span_dto_exposes_io():
     """The traces API must serialize the captured input/output to the web client."""
-    from forge.models import Span
-    from forge.schemas.dto import SpanOut
+    from ros.models import Span
+    from ros.schemas.dto import SpanOut
 
     sp = Span(
         id="s1", tenant_id="t", trace_id="tr", name="tool · fetch_item", kind="tool", latency_ms=5,
@@ -140,7 +140,7 @@ def test_tracer_ignores_stale_record_from_another_tool():
     """A record left by an EARLIER tool must not attach to a different tool's span; that span
     falls back to its own raw return value instead."""
     tool_io.clear_tool_io()
-    tr = ForgeTracer()
+    tr = ROSTracer()
     rid = uuid.uuid4()
     tr.on_tool_start({"name": "lookup"}, "{}", run_id=rid)
     tool_io.set_tool_io("some_other_tool", request={"method": "GET"}, response={"status": 200})

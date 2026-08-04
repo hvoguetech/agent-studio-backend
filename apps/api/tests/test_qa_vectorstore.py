@@ -1,11 +1,11 @@
-"""Q&A semantic match now runs through the vector store (forge_qa_<dim>), not a
+"""Q&A semantic match now runs through the vector store (ros_qa_<dim>), not a
 Python O(n) cosine over every row."""
 
 from __future__ import annotations
 
-from forge.db.base import SessionLocal
-from forge.models import QaPair
-from forge.services.knowledge import KnowledgeService
+from ros.db.base import SessionLocal
+from ros.models import QaPair
+from ros.services.knowledge import KnowledgeService
 
 T, P = "t_qa_vs", "p_qa_vs"
 

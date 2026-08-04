@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from forge.util.ratelimit import IdempotencyCache, RateLimiter
+from ros.util.ratelimit import IdempotencyCache, RateLimiter
 
 
 def test_token_bucket_blocks_after_burst():

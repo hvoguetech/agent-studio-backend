@@ -15,10 +15,10 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.errors import GraphBubbleUp
 
-from forge.engine.compiler import compile_workflow
-from forge.engine.context import CompileContext
-from forge.nodes.flow import FANOUT_INDEX_KEY, join_factory, resilient_fanout_child
-from forge.services.validation import validate_workflow
+from ros.engine.compiler import compile_workflow
+from ros.engine.context import CompileContext
+from ros.nodes.flow import FANOUT_INDEX_KEY, join_factory, resilient_fanout_child
+from ros.services.validation import validate_workflow
 
 
 def _ctx() -> CompileContext:
@@ -129,18 +129,18 @@ async def test_resilient_child_propagates_control_flow_and_honors_timeout():
 # --------------------------------------------------------------------------------------------
 
 def test_tenant_budget_run_scoped_tokens():
-    from forge.engine.middleware_compiler import _tenant_budget
+    from ros.engine.middleware_compiler import _tenant_budget
 
     mw = _tenant_budget({"max_tokens_per_run": 10, "on_exceed": "end"}, None)
     msg = AIMessage(content="x", usage_metadata={"input_tokens": 6, "output_tokens": 6, "total_tokens": 12})
-    assert mw.after_model({"messages": [msg]})["_forge_run_tokens"] == 12
-    stop = mw.before_model({"_forge_run_tokens": 12})
+    assert mw.after_model({"messages": [msg]})["_ros_run_tokens"] == 12
+    stop = mw.before_model({"_ros_run_tokens": 12})
     assert stop and stop.get("jump_to") == "end"
-    assert mw.before_model({"_forge_run_tokens": 0}) is None
+    assert mw.before_model({"_ros_run_tokens": 0}) is None
 
 
 def test_tenant_budget_usd_accounting():
-    from forge.engine.middleware_compiler import _tenant_budget
+    from ros.engine.middleware_compiler import _tenant_budget
 
     mw = _tenant_budget({"max_usd_per_thread": 1.0, "on_exceed": "error"}, None)
     # gpt-4.1-mini input is $0.40/1M tokens -> 1M input tokens == $0.40.
@@ -150,9 +150,9 @@ def test_tenant_budget_usd_accounting():
         response_metadata={"model_name": "gpt-4.1-mini"},
     )
     upd = mw.after_model({"messages": [msg]})
-    assert abs(upd["_forge_thread_cost_usd"] - 0.4) < 1e-6
+    assert abs(upd["_ros_thread_cost_usd"] - 0.4) < 1e-6
     with pytest.raises(RuntimeError):
-        mw.before_model({"_forge_thread_cost_usd": 2.0})
+        mw.before_model({"_ros_thread_cost_usd": 2.0})
 
 
 # --------------------------------------------------------------------------------------------
@@ -160,7 +160,7 @@ def test_tenant_budget_usd_accounting():
 # --------------------------------------------------------------------------------------------
 
 def test_guardrail_redact_masks_input_and_output():
-    from forge.engine.middleware_compiler import _guardrail_regex
+    from ros.engine.middleware_compiler import _guardrail_regex
 
     mw = _guardrail_regex({"patterns": ["forbidden"], "on_match": "redact", "apply_to": "both"}, None)
     out = mw.after_model({"messages": [AIMessage(content="the forbidden secret", id="a1")]})
@@ -170,7 +170,7 @@ def test_guardrail_redact_masks_input_and_output():
 
 
 def test_guardrail_flag_marks_without_changing_content():
-    from forge.engine.middleware_compiler import _guardrail_regex
+    from ros.engine.middleware_compiler import _guardrail_regex
 
     mw = _guardrail_regex({"patterns": ["bad"], "on_match": "flag", "apply_to": "output"}, None)
     out = mw.after_model({"messages": [AIMessage(content="this is bad", id="a2")]})
@@ -179,7 +179,7 @@ def test_guardrail_flag_marks_without_changing_content():
 
 
 def test_guardrail_output_only_ignores_input():
-    from forge.engine.middleware_compiler import _guardrail_regex
+    from ros.engine.middleware_compiler import _guardrail_regex
 
     mw = _guardrail_regex({"patterns": ["forbidden"], "on_match": "block", "apply_to": "output"}, None)
     assert mw.before_model({"messages": [HumanMessage(content="forbidden", id="h9")]}) is None
@@ -211,7 +211,7 @@ async def test_guardrail_block_still_replaces_reply():
 # --------------------------------------------------------------------------------------------
 
 def test_model_retry_passes_retry_on():
-    from forge.engine.middleware_compiler import _model_retry
+    from ros.engine.middleware_compiler import _model_retry
 
     mw = _model_retry({"max_retries": 1, "retry_on": ["timeout", "http_error"]}, None)
     assert TimeoutError in mw.retry_on and httpx.HTTPError in mw.retry_on
@@ -296,7 +296,7 @@ async def test_subworkflow_input_output_mapping():
 # --------------------------------------------------------------------------------------------
 
 def test_transform_jq_raises_when_unavailable():
-    from forge.nodes.data import transform_factory
+    from ros.nodes.data import transform_factory
 
     node = transform_factory({"engine": "jq", "expression": ".x", "output_key": "data"}, _ctx())
     with pytest.raises(ValueError, match="jq"):
@@ -304,7 +304,7 @@ def test_transform_jq_raises_when_unavailable():
 
 
 def test_transform_bad_jmespath_returns_none():
-    from forge.nodes.data import transform_factory
+    from ros.nodes.data import transform_factory
 
     node = transform_factory({"expression": "foo[", "output_key": "data"}, _ctx())
     assert node({"foo": 1}) == {"data": None}
@@ -448,7 +448,7 @@ def test_unwired_agent_fields_warn():
 
 def test_openai_moderation_translates_apply_to_flags():
     pytest.importorskip("langchain_openai")
-    from forge.engine.middleware_compiler import _openai_moderation
+    from ros.engine.middleware_compiler import _openai_moderation
 
     mw = _openai_moderation({"apply_to_input": True, "apply_to_output": False}, None)
     assert mw.check_input is True and mw.check_output is False

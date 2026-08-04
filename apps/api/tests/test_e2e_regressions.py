@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from forge.db.base import SessionLocal
-from forge.models import Trigger
-from forge.services.tools import ToolService
-from forge.services.validation import validate_workflow
-from forge.services.workflows import WorkflowService
+from ros.db.base import SessionLocal
+from ros.models import Trigger
+from ros.services.tools import ToolService
+from ros.services.validation import validate_workflow
+from ros.services.workflows import WorkflowService
 
 
 def test_trigger_and_flow_nodes_validate():
     """node_schema_ref must resolve trigger/flow schemas whose file name != node type
-    (e.g. webhook_in -> forge/nodes/trigger_webhook). Previously: Unresolvable schema."""
+    (e.g. webhook_in -> ros/nodes/trigger_webhook). Previously: Unresolvable schema."""
     wf = {
         "id": "w", "version": 1,
         "state": {"messages": {"type": "list[message]", "reducer": "add_messages"}},
@@ -30,7 +30,7 @@ def test_trigger_and_flow_nodes_validate():
 async def test_tool_test_supports_code_and_sql(tmp_path, monkeypatch):
     import sqlite3
 
-    from forge.config import settings
+    from ros.config import settings
     # Code tools are OFF by default (unsandboxed RestrictedPython is not an isolation
     # boundary - audit S5); this test exercises the feature, so opt in explicitly.
     monkeypatch.setattr(settings, "enable_code_tools", True)

@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import pytest
 
-from forge.db.base import SessionLocal
-from forge.knowledge.embeddings import resolve_embedder
-from forge.services.knowledge import KnowledgeService
+from ros.db.base import SessionLocal
+from ros.knowledge.embeddings import resolve_embedder
+from ros.services.knowledge import KnowledgeService
 
 # --- re-chunk overrides ---
 
@@ -15,7 +15,7 @@ _BIG = " ".join(f"Refund policy note {i}: widgets ship within five business days
 
 
 async def test_ingest_records_chunk_settings(tmp_path):
-    from forge.config import settings
+    from ros.config import settings
 
     settings.chroma_path = str(tmp_path / "chroma_rec")
     async with SessionLocal() as s:
@@ -29,7 +29,7 @@ async def test_ingest_records_chunk_settings(tmp_path):
 
 
 async def test_rechunk_smaller_size_yields_more_chunks(tmp_path):
-    from forge.config import settings
+    from ros.config import settings
 
     settings.chroma_path = str(tmp_path / "chroma_rc")
     async with SessionLocal() as s:
@@ -44,7 +44,7 @@ async def test_rechunk_smaller_size_yields_more_chunks(tmp_path):
 
 
 async def test_rechunk_honors_zero_overlap(tmp_path):
-    from forge.config import settings
+    from ros.config import settings
 
     settings.chroma_path = str(tmp_path / "chroma_ov0")
     async with SessionLocal() as s:
@@ -57,7 +57,7 @@ async def test_rechunk_honors_zero_overlap(tmp_path):
 
 
 async def test_rechunk_strategy_only_preserves_size(tmp_path):
-    from forge.config import settings
+    from ros.config import settings
 
     settings.chroma_path = str(tmp_path / "chroma_rcs")
     async with SessionLocal() as s:

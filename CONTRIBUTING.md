@@ -1,6 +1,6 @@
-# Contributing to Forge
+# Contributing to ROS
 
-Thanks for your interest in improving Forge! This guide covers how to get set up, the
+Thanks for your interest in improving ROS! This guide covers how to get set up, the
 checks your change needs to pass, and our conventions.
 
 ## Ways to contribute
@@ -35,8 +35,8 @@ Run the same checks CI runs:
 
 **Backend** (from `apps/api`):
 ```bash
-ruff check forge migrations      # lint (pinned; must be clean)
-mypy forge                       # type check (advisory today — keep new/changed code clean)
+ruff check ros migrations      # lint (pinned; must be clean)
+mypy ros                       # type check (advisory today — keep new/changed code clean)
 pytest -q                        # tests must pass
 ```
 
@@ -65,7 +65,7 @@ Additional expectations:
 
 ## Versioning
 
-Forge follows [Semantic Versioning](https://semver.org/). User-facing changes are recorded
+ROS follows [Semantic Versioning](https://semver.org/). User-facing changes are recorded
 in the changelog and rolled into the next release.
 
 ## License

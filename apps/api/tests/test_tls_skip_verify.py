@@ -1,18 +1,18 @@
 """`tls_skip_verify` is gated: TLS verification may be disabled only for a host explicitly on
-FORGE_EGRESS_ALLOW_PRIVATE_HOSTS. For any other host the flag is ignored and verification stays on,
+ROS_EGRESS_ALLOW_PRIVATE_HOSTS. For any other host the flag is ignored and verification stays on,
 so certificate checks can never be turned off for an arbitrary/public endpoint."""
 
 from __future__ import annotations
 
 import httpx
 
-from forge.util.http import (
+from ros.util.http import (
     aclose_shared_client,
     insecure_async_client,
     select_client,
     shared_async_client,
 )
-from forge.util.ssrf import EgressPolicy
+from ros.util.ssrf import EgressPolicy
 
 
 async def test_tls_skip_verify_is_gated_to_allow_private_hosts():
@@ -55,7 +55,7 @@ async def test_guarded_request_reselects_client_per_redirect_hop(monkeypatch):
     """A redirect off an allow-private host to a public host must re-select the client from the
     hop's OWN host, so verify-off (tls_skip_verify) never carries onto a non-allow-private hop.
     Regression for the MEDIUM finding that guarded_request reused one client across all hops."""
-    import forge.util.ssrf as ssrf
+    import ros.util.ssrf as ssrf
 
     seen_hosts: list[str] = []
 
@@ -74,7 +74,7 @@ async def test_guarded_request_reselects_client_per_redirect_hop(monkeypatch):
         return mock
 
     monkeypatch.setattr(ssrf, "validate_url", _no_validate)
-    monkeypatch.setattr("forge.util.http.select_client", _spy_select)
+    monkeypatch.setattr("ros.util.http.select_client", _spy_select)
 
     policy = EgressPolicy(block_private=True, allow_private_hosts=("internal.corp",))
     try:

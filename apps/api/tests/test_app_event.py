@@ -7,10 +7,10 @@ from datetime import datetime, timedelta
 import httpx
 from langgraph.checkpoint.memory import InMemorySaver
 
-from forge.db.base import SessionLocal
-from forge.models import Trigger, Workflow
-from forge.services.dispatch import _poll_app_event
-from forge.services.runs import RunService
+from ros.db.base import SessionLocal
+from ros.models import Trigger, Workflow
+from ros.services.dispatch import _poll_app_event
+from ros.services.runs import RunService
 
 _WF = {
     "id": "wf_ae", "version": 1,
@@ -28,7 +28,7 @@ _PAYLOAD = {"items": [{"id": "1", "msg": "first"}, {"id": "2", "msg": "second"}]
 
 async def test_app_event_dispatches_new_then_dedupes(monkeypatch):
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=_PAYLOAD)))
-    monkeypatch.setattr("forge.util.http.shared_async_client", lambda: client)
+    monkeypatch.setattr("ros.util.http.shared_async_client", lambda: client)
 
     async with SessionLocal() as s:
         wf = Workflow(tenant_id="t_ae", project_id="p_ae", name="AE", executable=_WF, status="active")

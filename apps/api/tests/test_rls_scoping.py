@@ -1,7 +1,7 @@
 """Postgres RLS tenant-GUC wiring.
 
 Verifies the request-scoped tenant contextvar round-trips (used by the GUC listener in
-forge.db.base to set app.current_tenant per transaction) and that the listener is a harmless
+ros.db.base to set app.current_tenant per transaction) and that the listener is a harmless
 no-op on the SQLite test DB, so ordinary queries keep working. The GUC's effect on real RLS
 policies is exercised only against Postgres (see infra/postgres_rls.sql)."""
 
@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from sqlalchemy import text
 
-from forge.db.base import SessionLocal
-from forge.db.scoping import current_tenant, set_current_tenant, tenant_guard
+from ros.db.base import SessionLocal
+from ros.db.scoping import current_tenant, set_current_tenant, tenant_guard
 
 
 def test_tenant_contextvar_roundtrip():

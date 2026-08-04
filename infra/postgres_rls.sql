@@ -1,7 +1,7 @@
--- Postgres Row-Level Security for Forge (defense-in-depth tenant isolation).
+-- Postgres Row-Level Security for ROS (defense-in-depth tenant isolation).
 --
--- Forge already scopes every query by tenant_id (forge.db.scoping.tenant_scoped). RLS
--- makes that a DB-level guarantee: even a query that forgets the filter returns only the
+-- ROS already scopes every query by tenant_id (ros.db.scoping.tenant_scoped). RLS
+-- makes that a DB-level guarantee: even a query that rosts the filter returns only the
 -- current tenant's rows. Apply this AFTER `alembic upgrade head` on a Postgres database.
 --
 -- NOTE: the version-history, eval-history, and platform-hardening tables (entity_versions,

@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Forge are documented here.
+All notable changes to ROS are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
@@ -21,7 +21,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
   ("Agent activity"), the canvas Test panel lights up folded sub-agent nodes, and the **Traces** view
   is now a **collapsible span tree** (real `parent_span_id` hierarchy, friendly canvas node names,
   per-kind colored dots, collapse/expand-all).
-- **Per-environment tool values `{{env.*}}`** (new): a `FORGE_TOOL_VARS` JSON map is exposed to
+- **Per-environment tool values `{{env.*}}`** (new): a `ROS_TOOL_VARS` JSON map is exposed to
   REST/GraphQL tool + auth endpoint templates as `{{env.*}}`, so the SAME tool row resolves to a
   different host per deploy (dev/qa/prod). Missing keys **fail loud** (never a broken URL); `{{ctx.*}}`
   stays lenient.
@@ -36,12 +36,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - **Console runs act as the logged-in operator**: Playground and canvas-test runs are attributed to
   the signed-in user (removing the manual "Acting as" box), so per-user auth providers resolve the
   operator's own connected credential — the same on-behalf-of path evals now use.
-- **`FORGE_DEFAULT_TOKEN_CTX_KEY`** (new): a deployment-wide fallback for a per-user auth provider's
+- **`ROS_DEFAULT_TOKEN_CTX_KEY`** (new): a deployment-wide fallback for a per-user auth provider's
   `token_ctx_key`, so an integration that always forwards its per-user token under one context key
   works for every provider without per-provider configuration.
 - **Fixed:** OpenAI streamed runs now report token usage / cost (`stream_usage`), instead of 0; a HITL
   turn with several approval-gated tool calls resumes correctly (one decision replicated to each
-  hanging call) in both workflow runs and the Forge Assistant; the MCP endpoint shown on the Deploy
+  hanging call) in both workflow runs and the ROS Assistant; the MCP endpoint shown on the Deploy
   screen points at the API host directly so OAuth discovery works.
 
 ### Tool sets, MCP server, governance & portability
@@ -53,9 +53,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
   **Streamable-HTTP / SSE** (Claude Desktop, Cursor, VS Code connect **directly — no `mcp-remote`
   bridge**), with the legacy request/response JSON-RPC POST preserved for simple clients; both
   share one auth + tool-resolution core. Three ways to authenticate: a shared **project API key**
-  (server-to-server, no identity), a per-user **personal access token** (PAT, `forge_pat_…`), and
+  (server-to-server, no identity), a per-user **personal access token** (PAT, `ros_pat_…`), and
   optional **OAuth 2.1** (Dynamic Client Registration + PKCE S256, audience-bound tokens;
-  default-off behind `FORGE_MCP_OAUTH_ENABLED`). The exposed surface is exactly the enabled tools
+  default-off behind `ROS_MCP_OAUTH_ENABLED`). The exposed surface is exactly the enabled tools
   of **exposed tool sets**; knowledge, Q&A, and a whole workflow can also be published as MCP
   tools. A least-privileged **connector** role can self-serve MCP tokens and call tools but sees
   no projects/settings.
@@ -64,7 +64,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
   act per user. An OAuth auth-provider can key its token bundle **per end user**
   (`per_user_context_keys`); the app owner stores each user's bundle via the new **connections API**
   (`PUT/GET/DELETE /v1/projects/{id}/auth-providers/{apId}/connections/{endUserId}`). No MCP token
-  is ever passed downstream — Forge holds a separate per-user credential.
+  is ever passed downstream — ROS holds a separate per-user credential.
 - **Guardrails & Egress** (new): a single project-level I/O policy in **Settings → Guardrails &
   Egress** (admin-gated), enforced **by default on every agent** — no per-agent wiring. Content
   guardrails (PII redaction, custom `Label = regex` patterns, blocked terms with
@@ -72,7 +72,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
   allow/deny domain lists) is applied to every REST/GraphQL tool, webhook, `web_fetch`, and SQL
   host. A project may only **tighten** inherited egress, never loosen it.
 - **Import / Export (portability)** (new): export **tools, workflows, components, and agents** to a
-  portable `forge.bundle/1` JSON file and import them into another project. Secret **values never
+  portable `ros.bundle/1` JSON file and import them into another project. Secret **values never
   leave** (only `secret://…` references travel; import warns you to recreate them); imports **never
   overwrite** (new ids, auto-rename on name collision) and remap in-bundle references. Available
   from each list screen's toolbar; import requires the `editor` role.
@@ -84,7 +84,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
   Traces now read like a chat history; unified screen headings and bare icons app-wide.
 - **Performance:** cut interactive chat latency by eliminating a ~4s cold-connection DNS (AAAA)
   stall on outbound LLM/REST calls and reusing pooled LLM connections
-  (`FORGE_PREFER_IPV4_EGRESS`, default on).
+  (`ROS_PREFER_IPV4_EGRESS`, default on).
 
 ### Fixed (this cycle)
 - Map `openai_moderation` middleware flags to `langchain-openai >=1.3`.
@@ -160,7 +160,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [0.1.0]
 
-- Initial Forge platform: visual agent/workflow builder on LangChain + LangGraph, tools
+- Initial ROS platform: visual agent/workflow builder on LangChain + LangGraph, tools
   (REST/GraphQL/Code/SQL/MCP/built-in), knowledge & RAG, generative-UI components,
   embeddable widget, channels, triggers, evaluations, observability/traces, and a
   production-shaped Docker stack. See the [README](README.md) and [ROADMAP](docs/ROADMAP.md).

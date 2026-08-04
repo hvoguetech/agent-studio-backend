@@ -13,11 +13,11 @@ import uuid
 import httpx
 from langgraph.checkpoint.memory import InMemorySaver
 
-from forge.main import create_app
+from ros.main import create_app
 
 # A trivial one-agent workflow whose fake model always answers with this exact text - lets us
 # assert the endpoint actually ran the configured workflow end to end.
-_ANSWER = "Hello from Forge."
+_ANSWER = "Hello from ROS."
 _WF = {
     "id": "wf_run_ep", "version": 1,
     "state": {"messages": {"type": "list[message]", "reducer": "add_messages"}},

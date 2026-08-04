@@ -14,10 +14,10 @@ import pathlib
 import pytest
 from langgraph.errors import GraphBubbleUp
 
-from forge.nodes.flow import with_error_handling
-from forge.util.metrics import snapshot
+from ros.nodes.flow import with_error_handling
+from ros.util.metrics import snapshot
 
-_SCHEMAS = pathlib.Path(__file__).resolve().parents[3] / "packages" / "schemas" / "forge"
+_SCHEMAS = pathlib.Path(__file__).resolve().parents[3] / "packages" / "schemas" / "ros"
 
 
 # --- AC-1: the error_handling schema fragment exists and is optional ----------------------
