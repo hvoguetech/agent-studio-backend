@@ -53,11 +53,11 @@ class LocalBackend(ExecutionBackend):
     async def retry(self, *, run_id, tenant_id, mode, project_id=None, run_service=None) -> dict:
         rs = self._run_service(run_service)
         if mode == "resume":
-            return await rs._continue_from_checkpoint(
-                run_id=run_id, tenant_id=tenant_id, project_id=project_id
-            )
-        # "restart" (fresh run on the latest published version) is delivered by A/C11 (#25).
-        raise NotImplementedError("retry mode 'restart' lands in A/C11 (#25)")
+            return await rs.retry_resume(run_id=run_id, tenant_id=tenant_id, project_id=project_id)
+        if mode == "restart":
+            # Create a fresh run on the current published version; the caller drives it (streams).
+            return await rs.create_retry_run(run_id=run_id, tenant_id=tenant_id, project_id=project_id)
+        raise ValueError(f"unknown retry mode: {mode!r} (expected 'resume' or 'restart')")
 
     async def reclaim_orphans(self) -> int:
         # A/C9: first RE-DRIVE fresh orphans (crashed drivers) from their checkpoint, then run the

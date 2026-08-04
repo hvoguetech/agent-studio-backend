@@ -1147,6 +1147,71 @@ class RunService:
             finally:
                 await run_control.end(run_id)
 
+    async def retry_resume(
+        self, *, run_id: str, tenant_id: str, project_id: str | None = None,
+        run_context: dict | None = None,
+    ) -> dict:
+        """A/C11 resume: continue a terminal-but-resumable run (error/canceled) from its last
+        checkpoint. Returns {"status": "not_resumable"} (the router maps it to 409) when the
+        checkpoint has no pending work - the caller should `restart` instead."""
+        set_current_tenant(tenant_id)
+        async with SessionLocal() as session:
+            where = [Run.tenant_id == tenant_id, Run.id == run_id]
+            if project_id is not None:
+                where.append(Run.project_id == project_id)
+            run = (await session.execute(select(Run).where(*where))).scalar_one_or_none()
+            if run is None:
+                return {"error": "run not found"}
+            if run.status not in ("error", "canceled"):
+                return {"status": run.status, "error": f"run is not retryable (status={run.status})"}
+            wf = (await session.execute(select(Workflow).where(Workflow.id == run.workflow_id))).scalar_one()
+            thread = (await session.execute(select(Thread).where(Thread.id == run.thread_id))).scalar_one()
+            checkpointer = self.checkpointer
+            if checkpointer is None:
+                from langgraph.checkpoint.memory import InMemorySaver
+
+                checkpointer = InMemorySaver()
+            config = {
+                "configurable": {"thread_id": thread.lg_thread_id},
+                "recursion_limit": _recursion_limit(wf.executable),
+            }
+            ctx = await build_compile_context(
+                session, tenant_id=tenant_id, project_id=run.project_id,
+                checkpointer=checkpointer, store=self.store,
+                end_user=(thread.meta or {}).get("end_user"), run_context=run_context,
+            )
+            graph = compile_workflow(wf.executable, ctx)
+            snapshot = await graph.aget_state(config)
+            resumable = bool(getattr(snapshot, "next", ()))
+        if not resumable:
+            return {"status": "not_resumable", "detail": "no resumable checkpoint; use mode=restart"}
+        return await self._continue_from_checkpoint(
+            run_id=run_id, tenant_id=tenant_id, project_id=project_id, run_context=run_context
+        )
+
+    async def create_retry_run(
+        self, *, run_id: str, tenant_id: str, project_id: str | None = None,
+    ) -> dict:
+        """A/C11 restart: create a FRESH run of the original input on the current published
+        workflow version, with a new thread. The original run is preserved; the new run records
+        `retry_of` (lineage). The caller drives the returned run (e.g. the console streams it)."""
+        set_current_tenant(tenant_id)
+        async with SessionLocal() as session:
+            where = [Run.tenant_id == tenant_id, Run.id == run_id]
+            if project_id is not None:
+                where.append(Run.project_id == project_id)
+            orig = (await session.execute(select(Run).where(*where))).scalar_one_or_none()
+            if orig is None:
+                return {"error": "run not found"}
+            thread = await session.get(Thread, orig.thread_id)
+            end_user = (thread.meta or {}).get("end_user") if thread else None
+            new = await self.create_run(
+                session, tenant_id=tenant_id, project_id=orig.project_id,
+                workflow_id=orig.workflow_id, input=orig.input or {}, thread_id=None,
+                end_user=end_user, source="retry",
+            )
+            return {"run_id": new.id, "status": new.status, "thread_id": new.thread_id, "retry_of": run_id}
+
     async def reclaim_running_orphans(
         self, *, orphan_after_s: int | None = None, max_attempts: int | None = None,
     ) -> int:

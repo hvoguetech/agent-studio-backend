@@ -4,20 +4,22 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from forge.config import settings
 from forge.deps import (
     CurrentUser,
+    client_ip,
     current_tenant_id,
     get_current_user,
     get_run_service,
     get_session,
+    require_role,
     run_context,
 )
-from forge.schemas.dto import ResumeIn, RunCreate, RunOut
+from forge.schemas.dto import ResumeIn, RetryIn, RunCreate, RunOut
 from forge.services.runs import RunService
 from forge.util.ratelimit import idempotency, rate_limiter
 
@@ -155,6 +157,48 @@ async def resume_run(
     rc: dict | None = Depends(run_context),
 ):
     return await run_service.resume(run_id=run_id, tenant_id=tenant_id, value=body.value, project_id=project_id, run_context=rc)
+
+
+@router.post("/{run_id}/retry")
+async def retry_run(
+    project_id: str,
+    workflow_id: str,
+    run_id: str,
+    body: RetryIn,
+    request: Request,
+    user: CurrentUser = Depends(require_role("editor")),
+    run_service: RunService = Depends(get_run_service),
+):
+    """Operator retry of a terminal run (A/C11). `mode=resume` continues from the last checkpoint
+    (409 if there is nothing to resume); `mode=restart` creates a fresh run on the current
+    published version. Editor+ only; not exposed on the public/embed surface. Audit-logged."""
+    mode = (body.mode or "resume").strip().lower()
+    if mode not in ("resume", "restart"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "mode must be 'resume' or 'restart'")
+    tenant_id = user.tenant_id
+
+    from forge.execution import get_backend
+
+    result = await get_backend().retry(
+        run_id=run_id, tenant_id=tenant_id, mode=mode, project_id=project_id,
+        run_service=run_service,
+    )
+    if result.get("error") == "run not found":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "run not found")
+    if result.get("status") == "not_resumable":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            result.get("detail") or "run has no resumable checkpoint; use mode=restart",
+        )
+
+    from forge.services.audit import AuditService
+
+    await AuditService.log(
+        tenant_id=tenant_id, action="run.retry", actor_id=user.id, actor_email=user.email,
+        resource_type="run", resource_id=run_id, project_id=project_id, ip=client_ip(request),
+        meta={"mode": mode, "new_run_id": result.get("run_id")},
+    )
+    return result
 
 
 @router.post("/{run_id}/cancel")

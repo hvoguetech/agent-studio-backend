@@ -448,6 +448,13 @@ class ResumeIn(BaseModel):
     value: Any = True
 
 
+class RetryIn(BaseModel):
+    """Operator retry of a terminal run (A/C11). `resume` continues from the last checkpoint;
+    `restart` creates a fresh run of the original input on the current published version."""
+
+    mode: str = "resume"
+
+
 class ProjectRunIn(BaseModel):
     """One turn against a project's configured API workflow - the single server-to-server
     endpoint (POST /v1/projects/{id}/run). Framework-generic: any project, any auth scheme;
