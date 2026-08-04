@@ -62,13 +62,15 @@ async def dispatch_trigger(run_service: RunService, trigger: Trigger, payload, *
             if t is not None:
                 t.last_fired_at = datetime.utcnow()
                 await s.commit()
-    # Offload to the worker queue when configured (webhook/schedule need no synchronous
-    # reply); otherwise run inline. Either way per-tenant concurrency is bounded (audit P1).
-    from forge.queue import enqueue_run
-    if await enqueue_run(run_id, trigger.tenant_id, trigger.project_id):
-        return {"run_id": run_id, "status": "queued", "queued": True}
-    return await run_service.run_to_completion(
+    # Hand off to the resolved execution backend (A/C12): LocalBackend offloads to arq when
+    # configured, else runs inline - reusing this caller's RunService (and its checkpointer).
+    # A cloud backend (e.g. Inngest) owns durable execution instead. Per-tenant concurrency is
+    # bounded inside RunService either way (audit P1).
+    from forge.execution import get_backend
+
+    return await get_backend().submit(
         run_id=run_id, tenant_id=trigger.tenant_id, project_id=trigger.project_id,
+        run_service=run_service,
     )
 
 
