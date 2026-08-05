@@ -303,6 +303,11 @@ class Settings(BaseSettings):
     # versions) endpoints. OFF by default: these are an internal operational surface that also
     # aids fingerprinting, so enable only where the scrape endpoint sits on a trusted network.
     expose_metrics: bool = False
+    # Structured (JSON) logging (A/C5). OFF by default so local dev keeps human-readable logs and
+    # pytest/uvicorn own the handlers; turn ON in prod so a log pipeline (Datadog/Loki/ELK) can
+    # parse fields without regex. `log_level` sets the root level applied when JSON logging is on.
+    log_json: bool = False
+    log_level: str = "INFO"
 
     # --- Tool I/O in traces (debug what an agent actually sent a tool) ---
     # Master switch: capture per-tool-call input/output on trace spans (the LLM's tool args,

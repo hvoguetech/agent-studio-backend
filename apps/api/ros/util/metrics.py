@@ -39,3 +39,34 @@ def reset() -> None:
     with _lock:
         _counters.clear()
         _logged.clear()
+
+
+class RequestMetricsMiddleware:
+    """Pure-ASGI RED-ish request counters (A/C5): `http.requests` (rate) and
+    `http.responses.{2,3,4,5}xx` (errors, by status class), surfaced at `/v1/metrics`.
+
+    Deliberately pure-ASGI (not Starlette's BaseHTTPMiddleware, which buffers the response body
+    and would break SSE run streams) - it only peeks at the response START event for the status
+    code and passes bytes through untouched. Duration histograms need a real metrics backend
+    (OTel/Prometheus) and are intentionally left out of the in-process counter.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        incr("http.requests")
+        status = {"code": 500}  # default: if the app raises before sending a response, it's a 5xx
+
+        async def _send(message):
+            if message["type"] == "http.response.start":
+                status["code"] = message["status"]
+            await send(message)
+
+        try:
+            await self.app(scope, receive, _send)
+        finally:
+            incr(f"http.responses.{status['code'] // 100}xx")

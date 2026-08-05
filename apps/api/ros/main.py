@@ -60,6 +60,8 @@ from ros.routers import (
     triggers as triggers_router,
 )
 from ros.util.http import aclose_shared_client
+from ros.util.logging_setup import configure_logging
+from ros.util.metrics import RequestMetricsMiddleware
 
 
 async def _make_checkpointer(stack: AsyncExitStack):
@@ -240,6 +242,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    configure_logging()  # A/C5: install JSON logging when ROS_LOG_JSON is set (no-op otherwise)
     app = FastAPI(
         title="ROS API",
         version=ros.__version__,
@@ -268,6 +271,9 @@ def create_app() -> FastAPI:
     from ros.audit_middleware import AuditMiddleware
 
     app.add_middleware(AuditMiddleware)
+    # A/C5: RED-ish request/response counters. Added LAST so it's the OUTERMOST middleware and
+    # counts every request - including ones short-circuited by the rate limiter (429) above.
+    app.add_middleware(RequestMetricsMiddleware)
     for r in (
         health.router, auth.router, auth.team_router, auth.workspace_router, auth.apikeys_router,
         audit.router, oauth.router, hooks.router,
