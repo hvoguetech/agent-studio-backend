@@ -83,3 +83,29 @@ async def test_request_metrics_middleware_counts_requests():
     snap = metrics.snapshot()
     assert snap.get("http.requests", 0) >= 1
     assert snap.get("http.responses.2xx", 0) >= 1
+
+
+def test_llm_metrics_counted():
+    """Per-call LLM counters land at /v1/metrics via the tracer callbacks (#59)."""
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, LLMResult
+
+    from ros.tracing.tracer import ROSTracer
+
+    metrics.reset()
+    tr = ROSTracer()
+    # one successful call (a provider:model id so the by-provider counter fires)
+    tr.on_llm_start({"name": "openai:gpt-4.1"}, ["p"], run_id="ok")
+    msg = AIMessage(content="", usage_metadata={"input_tokens": 10, "output_tokens": 5, "total_tokens": 15})
+    tr.on_llm_end(LLMResult(generations=[[ChatGeneration(message=msg)]]), run_id="ok")
+    # one failed call
+    tr.on_llm_start({"name": "openai:gpt-4.1"}, ["p"], run_id="bad")
+    tr.on_llm_error(RuntimeError("boom"), run_id="bad")
+
+    snap = metrics.snapshot()
+    assert snap.get("llm.calls") == 2            # success + error both count as calls (for an error rate)
+    assert snap.get("llm.errors") == 1
+    assert snap.get("llm.tokens.input") == 10
+    assert snap.get("llm.tokens.output") == 5
+    assert snap.get("llm.calls.openai") == 2     # bounded by-provider breakdown
+    assert snap.get("llm.errors.openai") == 1

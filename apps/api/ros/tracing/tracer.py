@@ -21,6 +21,7 @@ from langchain_core.callbacks import BaseCallbackHandler
 from ros.config import settings
 from ros.tracing import tool_io
 from ros.tracing.pricing import price
+from ros.util.metrics import incr
 
 # A HITL interrupt (interrupt()) or a Command routing signal is RAISED as a GraphBubbleUp to
 # suspend/redirect the graph - control flow, not a failure. It reaches the callback error hooks
@@ -133,6 +134,25 @@ def _usage(response: Any) -> tuple[int, int, int, int]:
     return int(usage.get("prompt_tokens", 0)), int(usage.get("completion_tokens", 0)), 0, 0
 
 
+def _meter_llm(model: str | None, *, error: bool, input_tokens: int = 0, output_tokens: int = 0) -> None:
+    """Per-call LLM counters at `/v1/metrics` (process-wide, per-worker) so operators get a
+    real-time RED-style view of model traffic + spend without querying the traces table (#59).
+    Totals plus a bounded by-provider breakdown (the `provider:` prefix of a provider:model id);
+    per-model + latency HISTOGRAMS need a labelled-metric primitive (tracked in #42)."""
+    incr("llm.calls")
+    if error:
+        incr("llm.errors")
+    if input_tokens:
+        incr("llm.tokens.input", input_tokens)
+    if output_tokens:
+        incr("llm.tokens.output", output_tokens)
+    provider = model.split(":", 1)[0] if model and ":" in model else None
+    if provider:
+        incr(f"llm.calls.{provider}")
+        if error:
+            incr(f"llm.errors.{provider}")
+
+
 # Exact names of internal LCEL/LangGraph runnables that add depth without meaning.
 _INTERNAL_CHAINS = frozenset({
     "chain", "LangGraph", "Pregel", "PregelLoop", "PregelNode",
@@ -238,8 +258,14 @@ class ROSTracer(BaseCallbackHandler):
             run_id, input_tokens=in_tok, output_tokens=out_tok,
             cost_usd=price(model, in_tok, out_tok, cache_read_tokens=cache_read, cache_creation_tokens=cache_creation),
         )
+        _meter_llm(model, error=False, input_tokens=in_tok, output_tokens=out_tok)
 
     def on_llm_error(self, error, *, run_id, **kw):
+        # A LangGraph bubble-up (HITL interrupt / Command) is a pause, not a failure - don't count
+        # it as an LLM error (mirrors _end_error). Count real failures as call + error for a rate.
+        if not _is_control_flow(error):
+            sp = self.spans.get(str(run_id))
+            _meter_llm(sp.model if sp else None, error=True)
         self._end_error(run_id, error)
 
     # --- tools ---
