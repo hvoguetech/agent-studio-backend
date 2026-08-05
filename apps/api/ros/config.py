@@ -74,7 +74,7 @@ class Settings(BaseSettings):
     @field_validator(
         "jwt_secret_previous", "cors_origins", "egress_allow_hosts", "egress_deny_hosts",
         "egress_allow_private_hosts", "trusted_proxies", "trusted_hosts",
-        "mcp_stdio_allowed_commands", mode="before",
+        "mcp_stdio_allowed_commands", "secret_keys_fallback", mode="before",
     )
     @classmethod
     def _parse_str_lists(cls, v: object) -> list[str]:
@@ -144,6 +144,14 @@ class Settings(BaseSettings):
 
     # --- Secrets (Fernet master key; file-backed locally, KMS/Vault in prod) ---
     secret_key_file: str = Field(default_factory=lambda: (_DEFAULT_DATA_DIR / "master.key").as_posix())
+    # Primary master key material (base64 Fernet key). Highest precedence over secret_key_file;
+    # inject from a secret manager / KMS / Vault (envelope encryption: the KMS unwraps the DEK at
+    # boot and exports it here) so EVERY replica shares one key. Unset => file/auto-gen (dev). (A/C1)
+    secret_key: str | None = None
+    # OLD keys retained for DECRYPT-ONLY during rotation (comma-separated base64 Fernet keys).
+    # encrypt() always uses the primary; decrypt() also tries these, so a key rotates with zero
+    # downtime: promote a new primary, list the old key here, lazily re-encrypt, then drop it. (A/C1)
+    secret_keys_fallback: Annotated[list[str], NoDecode] = []
 
     # --- Platform auth (JWT) ---
     jwt_secret: str = "dev-insecure-change-me"
@@ -553,6 +561,12 @@ class Settings(BaseSettings):
                 "Multiple workers configured without ROS_REDIS_URL - rate limits, idempotency, "
                 "and token revocation are in-process (per-worker) and won't be shared/enforced "
                 "globally. Set ROS_REDIS_URL for multi-worker deployments."
+            )
+        if not self.secret_key:
+            warns.append(
+                "Master key is file-backed/auto-generated (ROS_SECRET_KEY unset). On autoscaled "
+                "or ephemeral-disk replicas each generates a DIFFERENT key and cannot decrypt its "
+                "peers' secrets. Set ROS_SECRET_KEY from KMS/Vault for any multi-replica deploy."
             )
         return warns
 
