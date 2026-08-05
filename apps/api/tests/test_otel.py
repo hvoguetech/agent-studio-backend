@@ -40,6 +40,25 @@ def test_export_emits_spans_with_genai_attributes():
     assert tool.parent.span_id == llm.context.span_id
 
 
+def test_export_emits_llm_content_events():
+    """Captured prompt/completion (#57) export as GenAI content events on the llm span."""
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    exporter = InMemorySpanExporter()
+    assert otel.configure(exporter=exporter) is True
+
+    rec = SpanRecord(id="s1", parent_id=None, name="model", kind="llm", start=1000.0, end=1000.5,
+                     start_wall=1_700_000_000.0, end_wall=1_700_000_000.5, model="openai:gpt-4o-mini",
+                     input=[{"role": "human", "content": "hi there"}], output="hello!")
+    otel.export([rec], trace_name="run")
+
+    llm = {s.name: s for s in exporter.get_finished_spans()}["model"]
+    events = {e.name: e for e in llm.events}
+    assert "gen_ai.content.prompt" in events and "gen_ai.content.completion" in events
+    assert events["gen_ai.content.completion"].attributes["gen_ai.completion"] == "hello!"
+    assert "hi there" in events["gen_ai.content.prompt"].attributes["gen_ai.prompt"]
+
+
 def test_export_noop_when_unconfigured():
     # reset to unconfigured state
     otel._tracer = None

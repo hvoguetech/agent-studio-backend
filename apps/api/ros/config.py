@@ -331,6 +331,13 @@ class Settings(BaseSettings):
     trace_tool_io_redact: bool = False
     # Per-field clip so a large body/response can't bloat the spans table. 0 = no cap.
     trace_tool_io_max_chars: int = 20000
+    # Capture the LLM PROMPT (messages) + COMPLETION text on model spans, so you can see exactly
+    # what was sent and answered - the key to debugging bad output / prompt regressions. OFF by
+    # default: this is the most sensitive trace data. When on, content is clipped
+    # (trace_tool_io_max_chars) and, under redaction (trace_tool_io_redact OR production), stored
+    # as a length-only placeholder instead of raw text - so a default prod deploy never persists
+    # prompt/response content even with capture enabled. Exported as OTel gen_ai.* events. (#57)
+    trace_llm_io: bool = False
 
     # In-process scheduler for `schedule` / `app_event` triggers (fires due ones once a minute).
     # ON by default so a published schedule actually fires out of the box (the manual documents

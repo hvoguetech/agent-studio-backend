@@ -100,3 +100,17 @@ def clip(value: Any) -> Any:
     except Exception:  # noqa: BLE001
         return str(value)[:cap]
     return value if len(s) <= cap else s[:cap] + "… (truncated)"
+
+
+def llm_content(value: Any) -> Any:
+    """Render captured LLM prompt/completion for a span (#57): clipped in dev, but a length-only
+    placeholder when redaction is enabled (explicit `trace_tool_io_redact` OR production) - freeform
+    prompt/completion text can't be field-masked and may carry PII, so a default prod deploy never
+    persists raw content even with capture on. Presence + size are preserved either way."""
+    if _redaction_enabled():
+        try:
+            s = value if isinstance(value, str) else _json.dumps(value, default=str)
+        except Exception:  # noqa: BLE001
+            s = str(value)
+        return _mask(s)
+    return clip(value)

@@ -63,6 +63,18 @@ def _provider_for(span_kind_model: str | None) -> str | None:
     return span_kind_model.split(":", 1)[0] if ":" in span_kind_model else None
 
 
+def _content_event(span, event_name: str, attr_key: str, value) -> None:
+    """Attach captured LLM prompt/completion as a GenAI content event (#57). OTel attribute values
+    must be primitives, so a structured message list is JSON-stringified. No-op when nothing was
+    captured (trace_llm_io off)."""
+    if value is None:
+        return
+    import json
+
+    text = value if isinstance(value, str) else json.dumps(value, default=str)
+    span.add_event(event_name, {attr_key: text})
+
+
 def _span_time_ns(r) -> tuple[int, int]:
     """(start_ns, end_ns) in WALL-CLOCK unix nanoseconds. SpanRecord.start/end are MONOTONIC
     (an arbitrary reference clock) - exporting those as epoch time landed every span near 1970
@@ -121,6 +133,9 @@ def export(records, *, trace_name: str = "run") -> None:
             if getattr(r, "error", None):
                 span.set_attribute("error", True)
                 span.set_attribute("ros.error", str(r.error))
+            if kind == "llm":  # captured prompt/completion (opt-in, #57) -> GenAI content events
+                _content_event(span, "gen_ai.content.prompt", "gen_ai.prompt", getattr(r, "input", None))
+                _content_event(span, "gen_ai.content.completion", "gen_ai.completion", getattr(r, "output", None))
             span.end(end_time=end_ns)
             rid = getattr(r, "id", None)
             if rid:

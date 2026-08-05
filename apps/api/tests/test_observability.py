@@ -109,3 +109,51 @@ def test_llm_metrics_counted():
     assert snap.get("llm.tokens.output") == 5
     assert snap.get("llm.calls.openai") == 2     # bounded by-provider breakdown
     assert snap.get("llm.errors.openai") == 1
+
+
+def _drive_llm(tr, *, prompt_msgs, completion, run_id="x"):
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, LLMResult
+
+    tr.on_chat_model_start({"name": "openai:gpt-4.1"}, [prompt_msgs], run_id=run_id)
+    msg = AIMessage(content=completion, usage_metadata={"input_tokens": 3, "output_tokens": 2, "total_tokens": 5})
+    tr.on_llm_end(LLMResult(generations=[[ChatGeneration(message=msg)]]), run_id=run_id)
+    return tr.spans[run_id]
+
+
+def test_llm_io_captured_when_enabled(monkeypatch):
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    from ros.tracing.tracer import ROSTracer
+
+    monkeypatch.setattr(settings, "trace_llm_io", True)
+    monkeypatch.setattr(settings, "trace_tool_io_redact", False)
+    monkeypatch.setattr(settings, "environment", "development")  # not prod -> not force-redacted
+    sp = _drive_llm(ROSTracer(), prompt_msgs=[SystemMessage(content="be terse"), HumanMessage(content="hi there")],
+                    completion="hello!")
+    assert sp.kind == "llm"
+    assert {m["role"]: m["content"] for m in sp.input} == {"system": "be terse", "human": "hi there"}
+    assert sp.output == "hello!"
+
+
+def test_llm_io_off_by_default(monkeypatch):
+    from langchain_core.messages import HumanMessage
+
+    from ros.tracing.tracer import ROSTracer
+
+    monkeypatch.setattr(settings, "trace_llm_io", False)
+    sp = _drive_llm(ROSTracer(), prompt_msgs=[HumanMessage(content="secret question")], completion="answer")
+    assert sp.input is None and sp.output is None  # no prompt/completion captured
+
+
+def test_llm_io_redacted_masks_content(monkeypatch):
+    from langchain_core.messages import HumanMessage
+
+    from ros.tracing.tracer import ROSTracer
+
+    monkeypatch.setattr(settings, "trace_llm_io", True)
+    monkeypatch.setattr(settings, "trace_tool_io_redact", True)  # redaction on -> length placeholder
+    sp = _drive_llm(ROSTracer(), prompt_msgs=[HumanMessage(content="my SSN is 123-45-6789")],
+                    completion="noted 123-45-6789")
+    assert "123-45-6789" not in json.dumps(sp.input) and "123-45-6789" not in str(sp.output)
+    assert "•••" in str(sp.input) and "•••" in str(sp.output)

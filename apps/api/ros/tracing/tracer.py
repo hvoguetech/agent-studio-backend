@@ -153,6 +153,35 @@ def _meter_llm(model: str | None, *, error: bool, input_tokens: int = 0, output_
             incr(f"llm.errors.{provider}")
 
 
+def _render_messages(messages: Any) -> list[dict]:
+    """Flatten LangChain messages to a compact [{role, content}] the UI can render and OTel can
+    stringify. Handles the on_chat_model_start batch shape (list[list[BaseMessage]])."""
+    seq = messages[0] if messages and isinstance(messages[0], (list, tuple)) else messages
+    out: list[dict] = []
+    for m in seq or []:
+        role = getattr(m, "type", None) or getattr(m, "role", None) or type(m).__name__
+        content = getattr(m, "content", m)
+        out.append({"role": str(role), "content": content if isinstance(content, str) else str(content)})
+    return out
+
+
+def _completion_text(response: Any) -> Any:
+    """The assistant's reply from an LLM response: message content, or a compact tool-call summary
+    when the model replied with tool calls and no text."""
+    try:
+        gen = response.generations[0][0]
+    except (AttributeError, IndexError, TypeError):
+        return None
+    msg = getattr(gen, "message", None)
+    if msg is None:
+        return getattr(gen, "text", None)
+    content = getattr(msg, "content", None)
+    tool_calls = getattr(msg, "tool_calls", None)
+    if not content and tool_calls:
+        return {"tool_calls": [{"name": tc.get("name"), "args": tc.get("args")} for tc in tool_calls]}
+    return content if isinstance(content, str) else str(content)
+
+
 # Exact names of internal LCEL/LangGraph runnables that add depth without meaning.
 _INTERNAL_CHAINS = frozenset({
     "chain", "LangGraph", "Pregel", "PregelLoop", "PregelNode",
@@ -245,19 +274,28 @@ class ROSTracer(BaseCallbackHandler):
     def on_chat_model_start(self, serialized, messages, *, run_id, parent_run_id=None, **kw):  # noqa: D401
         model = self._model_name(serialized, kw)
         self._open(run_id, parent_run_id, f"model · {model}" if model else "model", "llm", model=model)
+        if settings.trace_llm_io and messages:
+            self._set(run_id, input=tool_io.llm_content(_render_messages(messages)))
 
     def on_llm_start(self, serialized, prompts, *, run_id, parent_run_id=None, **kw):
         model = self._model_name(serialized, kw)
         self._open(run_id, parent_run_id, f"model · {model}" if model else "model", "llm", model=model)
+        if settings.trace_llm_io and prompts:
+            self._set(run_id, input=tool_io.llm_content(list(prompts)))
 
     def on_llm_end(self, response, *, run_id, **kw):
         in_tok, out_tok, cache_read, cache_creation = _usage(response)
         sp = self.spans.get(str(run_id))
         model = sp.model if sp else None
-        self._close(
-            run_id, input_tokens=in_tok, output_tokens=out_tok,
+        fields: dict[str, Any] = dict(
+            input_tokens=in_tok, output_tokens=out_tok,
             cost_usd=price(model, in_tok, out_tok, cache_read_tokens=cache_read, cache_creation_tokens=cache_creation),
         )
+        if settings.trace_llm_io:
+            completion = _completion_text(response)
+            if completion is not None:
+                fields["output"] = tool_io.llm_content(completion)
+        self._close(run_id, **fields)
         _meter_llm(model, error=False, input_tokens=in_tok, output_tokens=out_tok)
 
     def on_llm_error(self, error, *, run_id, **kw):
