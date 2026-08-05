@@ -106,8 +106,9 @@ async def test_judge_unavailable_is_not_a_pass():
     assert _is_real_judge(None) is False
     assert _is_real_judge(make_fake_model("anything")) is False  # offline fake model is NOT a real judge
 
-    passed, _reason, status = await EvalService._judge(None, "in", "expected", "answer")
+    passed, _reason, status, tokens, cost = await EvalService._judge(None, "in", "expected", "answer")
     assert passed is False and status == "unavailable"
+    assert tokens == 0 and cost == 0.0  # unavailable path meters nothing
 
     # The answer literally CONTAINS the expected string; the old code fell back to `contains`
     # here and reported a (misleading) pass. Now a judge item with no model is "unavailable".
@@ -115,6 +116,40 @@ async def test_judge_unavailable_is_not_a_pass():
     res = await EvalService._score_item(ds, {"input": "i", "expected": "exp"}, "exp appears here",
                                         judge_model=None, embedder=None)
     assert res["passed"] is False and res["status"] == "unavailable"
+
+
+class _MeteredJudge:
+    """A judge model whose structured-output call drives the callback tracer with a
+    usage-bearing response, so we can assert the judge meters its OWN tokens (#58). Not a
+    GenericFakeChatModel, so `_is_real_judge` treats it as a real judge."""
+
+    def with_structured_output(self, _schema):
+        return self
+
+    async def ainvoke(self, _prompt, config=None):
+        from langchain_core.messages import AIMessage
+        from langchain_core.outputs import ChatGeneration, LLMResult
+
+        for cb in (config or {}).get("callbacks", []):
+            cb.on_llm_start({"name": "gpt-4.1"}, ["p"], run_id="judge-1")  # a priced model
+            msg = AIMessage(content="", usage_metadata={"input_tokens": 120, "output_tokens": 30, "total_tokens": 150})
+            cb.on_llm_end(LLMResult(generations=[[ChatGeneration(message=msg)]]), run_id="judge-1")
+        return {"passed": True, "reasoning": "meets rubric"}
+
+
+async def test_judge_meters_its_own_token_usage():
+    # Previously the judge call was untraced -> its tokens/cost silently dropped to 0.
+    passed, reason, status, tokens, cost = await EvalService._judge(_MeteredJudge(), "in", "exp", "ans")
+    assert passed is True and status == "scored" and reason == "meets rubric"
+    assert tokens == 150  # 120 input + 30 output, now captured
+    assert cost > 0  # priced via the model rate, no longer silently $0
+
+    # The judge assertion surfaces that usage on its check, so item/run totals include it.
+    ds = Dataset(tenant_id="t", project_id="p", name="x", score_mode="judge", items=[])
+    res = await EvalService._score_item(ds, {"input": "i", "expected": "e"}, "ans",
+                                        judge_model=_MeteredJudge(), embedder=None)
+    jcheck = next(c for c in res["checks"] if c["type"] == "judge")
+    assert jcheck["tokens"] == 150
 
 
 async def test_embedding_assertion_unavailable_without_embedder():

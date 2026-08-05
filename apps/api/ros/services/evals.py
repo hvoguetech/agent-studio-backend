@@ -210,6 +210,7 @@ class EvalService:
         expected = a.get("expected", a.get("value", item_expected))
         exp_str = expected if isinstance(expected, str) else json.dumps(expected, default=str)
         passed, score, status, detail = False, None, "scored", ""
+        tokens, cost = 0, 0.0  # scoring-time LLM usage (judge); folded into the item totals (#58)
         if typ in ("contains", "exact", "regex"):
             passed = _score_deterministic(typ, answer, exp_str)
         elif typ == "numeric":
@@ -229,13 +230,14 @@ class EvalService:
                 score = cosine(va, ve)
                 passed = score >= threshold
         elif typ == "judge":
-            passed, reason, jstatus = await EvalService._judge(judge_model, inp, exp_str, answer, rubric=a.get("rubric"))
+            passed, reason, jstatus, tokens, cost = await EvalService._judge(judge_model, inp, exp_str, answer, rubric=a.get("rubric"))
             status, detail = jstatus, reason or ""
         else:
             status, detail = "error", f"unknown assertion type {typ!r}"
         if a.get("negate") and status == "scored":
             passed = not passed
-        return {"type": typ, "passed": bool(passed), "score": score, "status": status, "detail": detail}
+        return {"type": typ, "passed": bool(passed), "score": score, "status": status, "detail": detail,
+                "tokens": int(tokens), "cost": float(cost)}
 
     @staticmethod
     async def _score_item(dataset: Dataset, item: dict, answer: str, *, judge_model, embedder) -> dict:
@@ -267,22 +269,31 @@ class EvalService:
                 "status": "scored" if scored else "unavailable", "reason": reason, "checks": checks}
 
     @staticmethod
-    async def _judge(model, inp: str, expected: str, answer: str, *, rubric: str | None = None) -> tuple[bool, str, str]:
-        """Return (passed, reason, status). status: scored | unavailable | error. On no real
-        judge model or a call error we DO NOT fall back to substring matching (finding F4)."""
+    async def _judge(model, inp: str, expected: str, answer: str, *, rubric: str | None = None) -> tuple[bool, str, str, int, float]:
+        """Return (passed, reason, status, tokens, cost_usd). status: scored | unavailable | error.
+        On no real judge model or a call error we DO NOT fall back to substring matching (finding F4).
+
+        The judge's own token usage/cost is metered via a ROSTracer attached to the call, so eval
+        spend isn't under-reported - previously this call was untraced and its tokens/cost vanished
+        (#58). Usage is captured even when the structured-output parse fails after a successful call."""
         if not _is_real_judge(model):
-            return False, "judge model unavailable (offline/fake model) - result inconclusive, not a fail", "unavailable"
+            return False, "judge model unavailable (offline/fake model) - result inconclusive, not a fail", "unavailable", 0, 0.0
         prompt = (
             "You are grading an AI assistant's answer.\n" + (rubric or _JUDGE_RUBRIC) + "\n\n"
             f"INPUT:\n{inp}\n\nEXPECTED:\n{expected}\n\nANSWER:\n{answer}"
         )
+        from ros.tracing.tracer import ROSTracer
+
+        tracer = ROSTracer()
         try:
-            res = await model.with_structured_output(_JUDGE_SCHEMA).ainvoke(prompt)
+            res = await model.with_structured_output(_JUDGE_SCHEMA).ainvoke(prompt, config={"callbacks": [tracer]})
             passed = bool(res.get("passed") if isinstance(res, dict) else getattr(res, "passed", False))
             reason = (res.get("reasoning") if isinstance(res, dict) else getattr(res, "reasoning", None)) or ""
-            return passed, reason, "scored"
+            tokens, cost = tracer.totals()
+            return passed, reason, "scored", tokens, cost
         except Exception as e:  # noqa: BLE001
-            return False, f"judge error: {e}", "error"
+            tokens, cost = tracer.totals()  # the model call may have completed before the parse raised
+            return False, f"judge error: {e}", "error", tokens, cost
 
     # --- run ---
 
@@ -315,8 +326,13 @@ class EvalService:
             sc = {"passed": False, "score": None, "status": "run_failed", "reason": res["error"], "checks": []}
         else:
             sc = await EvalService._score_item(dataset, item, answer, judge_model=judge_model, embedder=embedder)
+        # Scoring-time judge LLM usage lives on each check; fold it into the item totals so eval
+        # spend (and the run aggregate that sums these) includes the judge, not just the run (#58).
+        judge_tokens = sum(int(c.get("tokens") or 0) for c in sc.get("checks", []))
+        judge_cost = sum(float(c.get("cost") or 0.0) for c in sc.get("checks", []))
         return {"index": idx, "input": inp, "expected": expected, "answer": answer,
-                "tokens": int(res.get("total_tokens") or 0), "cost": float(res.get("total_cost_usd") or 0.0),
+                "tokens": int(res.get("total_tokens") or 0) + judge_tokens,
+                "cost": float(res.get("total_cost_usd") or 0.0) + judge_cost,
                 "latency_ms": latency_ms, **sc}
 
     @staticmethod
