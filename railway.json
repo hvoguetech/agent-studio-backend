@@ -1,0 +1,14 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "apps/api/Dockerfile"
+  },
+  "deploy": {
+    "startCommand": "for i in 1 2 3 4 5 6; do alembic upgrade head && break || { echo \"alembic retry $i\"; sleep 5; }; done && exec uvicorn ros.main:app --host :: --port ${PORT:-8000}",
+    "healthcheckPath": "/livez",
+    "healthcheckTimeout": 300,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3
+  }
+}

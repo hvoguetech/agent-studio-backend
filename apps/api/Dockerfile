@@ -22,14 +22,13 @@ WORKDIR /app
 # Third-party deps install in a layer keyed only on pyproject.toml + a package stub, so a
 # pure ros/ source edit does NOT invalidate this (expensive) layer. The editable install
 # just links /app/ros onto sys.path, so overwriting the stub with the real tree afterwards
-# needs no reinstall. The BuildKit pip cache mount reuses already-downloaded wheels instead
-# of re-hitting PyPI even when the layer does re-run (e.g. a pyproject.toml change), so a
-# source edit can never turn into a PyPI round-trip / offline build failure.
+# needs no reinstall. (No BuildKit --mount=type=cache here: Railway's Metal builder rejects
+# cache mounts lacking its proprietary cacheKey id prefix, and a Railway-specific id would
+# break plain `docker build`/compose. Docker layer caching still skips this layer unchanged.)
 COPY apps/api/pyproject.toml apps/api/README.md ./
 RUN mkdir -p ros && touch ros/__init__.py
 # Production extras: model providers, vectors, knowledge, MCP, workers (Redis/arq), Postgres.
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --upgrade pip && \
+RUN pip install --upgrade pip && \
     pip install -e ".[providers,vectors,knowledge,mcp,workers,postgres]"
 
 # Real source over the stub (this layer changes on every edit, but it is AFTER the install).
