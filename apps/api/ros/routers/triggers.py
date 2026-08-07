@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import require_permission
 from ros.config import settings
 from ros.deps import current_tenant_id, get_session
 from ros.models import Trigger
@@ -13,7 +14,7 @@ from ros.models import Trigger
 router = APIRouter(prefix="/v1/projects/{project_id}/triggers", tags=["triggers"])
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_permission("trigger:read"))])
 async def list_triggers(
     project_id: str,
     session: AsyncSession = Depends(get_session),

@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import require_permission
 from ros.deps import CurrentUser, current_tenant_id, get_session, require_role
 from ros.schemas.dto import ExportIn, ImportIn, ImportReport
 from ros.services.components import ComponentService
@@ -64,19 +65,19 @@ class ComponentOut(BaseModel):
     version: int = 1
 
 
-@router.get("", response_model=list[ComponentOut])
+@router.get("", response_model=list[ComponentOut], dependencies=[Depends(require_permission("component:read"))])
 async def list_components(project_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     return await ComponentService.list(session, tenant_id, project_id)
 
 
-@router.post("/export")
+@router.post("/export", dependencies=[Depends(require_permission("component:read"))])
 async def export_components(project_id: str, body: ExportIn, session: AsyncSession = Depends(get_session),
                             tenant_id: str = Depends(current_tenant_id)):
     """Serialize the selected components (HTML/CSS/props/actions) into a downloadable bundle."""
     return await PortabilityService.export(session, tenant_id, project_id, "component", body.ids)
 
 
-@router.post("/import", response_model=ImportReport)
+@router.post("/import", response_model=ImportReport, dependencies=[Depends(require_permission("component:write"))])
 async def import_components(project_id: str, body: ImportIn, session: AsyncSession = Depends(get_session),
                             tenant_id: str = Depends(current_tenant_id), user: CurrentUser = Depends(require_role("editor"))):
     """Create components from an uploaded bundle in THIS project (auto-renamed on collision)."""
@@ -88,7 +89,7 @@ async def import_components(project_id: str, body: ImportIn, session: AsyncSessi
         raise HTTPException(422, str(e)) from e
 
 
-@router.post("", response_model=ComponentOut, status_code=201)
+@router.post("", response_model=ComponentOut, status_code=201, dependencies=[Depends(require_permission("component:write"))])
 async def create_component(project_id: str, body: ComponentCreate, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id),
                            user: CurrentUser = Depends(require_role("editor"))):
     existing = await ComponentService.list(session, tenant_id, project_id)
@@ -99,7 +100,7 @@ async def create_component(project_id: str, body: ComponentCreate, session: Asyn
     return comp
 
 
-@router.get("/{component_id}", response_model=ComponentOut)
+@router.get("/{component_id}", response_model=ComponentOut, dependencies=[Depends(require_permission("component:read"))])
 async def get_component(project_id: str, component_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     comp = await ComponentService.get(session, tenant_id, project_id, component_id)
     if comp is None:
@@ -107,7 +108,7 @@ async def get_component(project_id: str, component_id: str, session: AsyncSessio
     return comp
 
 
-@router.patch("/{component_id}", response_model=ComponentOut)
+@router.patch("/{component_id}", response_model=ComponentOut, dependencies=[Depends(require_permission("component:write"))])
 async def update_component(project_id: str, component_id: str, body: ComponentUpdate, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id),
                            user: CurrentUser = Depends(require_role("editor"))):
     comp = await ComponentService.get(session, tenant_id, project_id, component_id)
@@ -122,7 +123,7 @@ async def update_component(project_id: str, component_id: str, body: ComponentUp
     return comp
 
 
-@router.delete("/{component_id}", status_code=204)
+@router.delete("/{component_id}", status_code=204, dependencies=[Depends(require_permission("component:write"))])
 async def delete_component(project_id: str, component_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id),
                            _: CurrentUser = Depends(require_role("editor"))):
     comp = await ComponentService.get(session, tenant_id, project_id, component_id)

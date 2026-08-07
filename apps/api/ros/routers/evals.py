@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import require_permission
 from ros.deps import (
     CurrentUser,
     current_tenant_id,
@@ -60,13 +61,13 @@ def _needs_judge(ds) -> bool:
                for item in (ds.items or []) for a in (item.get("assertions") or []))
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_permission("eval:read"))])
 async def list_datasets(project_id: str, session: AsyncSession = Depends(get_session),
                         tenant_id: str = Depends(current_tenant_id)):
     return [_out(d) for d in await EvalService.list(session, tenant_id, project_id)]
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, dependencies=[Depends(require_permission("eval:write"))])
 async def create_dataset(project_id: str, body: DatasetIn, session: AsyncSession = Depends(get_session),
                          tenant_id: str = Depends(current_tenant_id),
                          _: CurrentUser = Depends(require_role("editor"))):
@@ -75,7 +76,7 @@ async def create_dataset(project_id: str, body: DatasetIn, session: AsyncSession
     return _out(ds)
 
 
-@router.patch("/{dataset_id}")
+@router.patch("/{dataset_id}", dependencies=[Depends(require_permission("eval:write"))])
 async def update_dataset(project_id: str, dataset_id: str, body: DatasetIn, session: AsyncSession = Depends(get_session),
                          tenant_id: str = Depends(current_tenant_id),
                          _: CurrentUser = Depends(require_role("editor"))):
@@ -87,7 +88,7 @@ async def update_dataset(project_id: str, dataset_id: str, body: DatasetIn, sess
     return _out(ds)
 
 
-@router.delete("/{dataset_id}")
+@router.delete("/{dataset_id}", dependencies=[Depends(require_permission("eval:write"))])
 async def delete_dataset(project_id: str, dataset_id: str, session: AsyncSession = Depends(get_session),
                          tenant_id: str = Depends(current_tenant_id),
                          _: CurrentUser = Depends(require_role("editor"))):
@@ -98,14 +99,14 @@ async def delete_dataset(project_id: str, dataset_id: str, session: AsyncSession
     return {"ok": True}
 
 
-@router.get("/{dataset_id}/runs")
+@router.get("/{dataset_id}/runs", dependencies=[Depends(require_permission("eval:read"))])
 async def list_eval_runs(project_id: str, dataset_id: str, session: AsyncSession = Depends(get_session),
                          tenant_id: str = Depends(current_tenant_id)):
     """Persisted eval-run history for a dataset (newest first) - quality trend + regression view."""
     return [_run_out(r) for r in await EvalService.history(session, tenant_id, dataset_id)]
 
 
-@router.get("/{dataset_id}/runs/{eval_run_id}/results")
+@router.get("/{dataset_id}/runs/{eval_run_id}/results", dependencies=[Depends(require_permission("eval:read"))])
 async def list_eval_results(project_id: str, dataset_id: str, eval_run_id: str,
                             session: AsyncSession = Depends(get_session),
                             tenant_id: str = Depends(current_tenant_id)):
@@ -135,7 +136,7 @@ async def _prepare_run(session, *, tenant_id, project_id, dataset_id, user):
     return ds, judge_model, end_user
 
 
-@router.post("/{dataset_id}/run")
+@router.post("/{dataset_id}/run", dependencies=[Depends(require_permission("eval:write"))])
 async def run_dataset(project_id: str, dataset_id: str, body: RunIn | None = None,
                       session: AsyncSession = Depends(get_session),
                       tenant_id: str = Depends(current_tenant_id),
@@ -150,7 +151,7 @@ async def run_dataset(project_id: str, dataset_id: str, body: RunIn | None = Non
                                  end_user=end_user, run_context=rc)
 
 
-@router.post("/{dataset_id}/run/stream")
+@router.post("/{dataset_id}/run/stream", dependencies=[Depends(require_permission("eval:write"))])
 async def run_dataset_stream(project_id: str, dataset_id: str, body: RunIn | None = None,
                              session: AsyncSession = Depends(get_session),
                              tenant_id: str = Depends(current_tenant_id),

@@ -11,6 +11,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import require_permission
 from ros.deps import CurrentUser, get_current_user, get_session
 from ros.models.entities import ApiKey
 from ros.schemas.dto import McpTokenCreate, McpTokenOut
@@ -32,7 +33,7 @@ def _require_real_user(user: CurrentUser) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "personal tokens require a logged-in user")
 
 
-@router.get("", response_model=list[McpTokenOut])
+@router.get("", response_model=list[McpTokenOut], dependencies=[Depends(require_permission("mcp_token:self"))])
 async def list_mcp_tokens(project_id: str, session: AsyncSession = Depends(get_session),
                           user: CurrentUser = Depends(get_current_user)):
     _require_real_user(user)
@@ -41,7 +42,7 @@ async def list_mcp_tokens(project_id: str, session: AsyncSession = Depends(get_s
     return [_out(k) for k in rows if k.project_id in (None, project_id)]
 
 
-@router.post("", response_model=McpTokenOut, status_code=201)
+@router.post("", response_model=McpTokenOut, status_code=201, dependencies=[Depends(require_permission("mcp_token:self"))])
 async def create_mcp_token(project_id: str, body: McpTokenCreate, session: AsyncSession = Depends(get_session),
                            user: CurrentUser = Depends(get_current_user)):
     _require_real_user(user)
@@ -52,7 +53,7 @@ async def create_mcp_token(project_id: str, body: McpTokenCreate, session: Async
     return _out(key, token=plaintext)
 
 
-@router.delete("/{token_id}", status_code=204)
+@router.delete("/{token_id}", status_code=204, dependencies=[Depends(require_permission("mcp_token:self"))])
 async def revoke_mcp_token(project_id: str, token_id: str, session: AsyncSession = Depends(get_session),
                            user: CurrentUser = Depends(get_current_user)):
     _require_real_user(user)

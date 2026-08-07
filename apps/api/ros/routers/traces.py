@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import require_permission
 from ros.deps import current_tenant_id, get_session
 from ros.schemas.dto import TraceDetailOut, TraceOut
 from ros.services.traces import TraceService
@@ -12,12 +13,12 @@ from ros.services.traces import TraceService
 router = APIRouter(prefix="/v1/projects/{project_id}/traces", tags=["traces"])
 
 
-@router.get("", response_model=list[TraceOut])
+@router.get("", response_model=list[TraceOut], dependencies=[Depends(require_permission("trace:read"))])
 async def list_traces(project_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     return await TraceService.list(session, tenant_id, project_id)
 
 
-@router.get("/{trace_id}", response_model=TraceDetailOut)
+@router.get("/{trace_id}", response_model=TraceDetailOut, dependencies=[Depends(require_permission("trace:read"))])
 async def get_trace(project_id: str, trace_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     trace = await TraceService.get(session, tenant_id, trace_id)
     if trace is None:

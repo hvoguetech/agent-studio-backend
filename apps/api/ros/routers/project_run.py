@@ -26,6 +26,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
+from ros.authz import require_permission
 from ros.config import settings
 from ros.deps import (
     CurrentUser,
@@ -92,7 +93,7 @@ def _resolve_end_user(
     return None
 
 
-@router.post("/run")
+@router.post("/run", dependencies=[Depends(require_permission("run:execute"))])
 async def project_run(
     project_id: str,
     body: ProjectRunIn,

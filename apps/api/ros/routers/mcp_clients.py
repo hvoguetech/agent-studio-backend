@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import require_permission
 from ros.deps import CurrentUser, current_tenant_id, get_session, require_role
 from ros.models import McpClient
 
@@ -37,7 +38,7 @@ def _out(m: McpClient) -> dict:
             "enabled": m.enabled, "disabled_tools": m.disabled_tools or []}
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_permission("mcp_client:read"))])
 async def list_clients(project_id: str, session: AsyncSession = Depends(get_session),
                        tenant_id: str = Depends(current_tenant_id)):
     rows = (await session.execute(
@@ -46,7 +47,7 @@ async def list_clients(project_id: str, session: AsyncSession = Depends(get_sess
     return [_out(m) for m in rows]
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, dependencies=[Depends(require_permission("mcp_client:write"))])
 async def create_client(project_id: str, body: McpClientIn, session: AsyncSession = Depends(get_session),
                         tenant_id: str = Depends(current_tenant_id),
                         _: CurrentUser = Depends(require_role("editor"))):
@@ -58,7 +59,7 @@ async def create_client(project_id: str, body: McpClientIn, session: AsyncSessio
     return _out(m)
 
 
-@router.patch("/{client_id}")
+@router.patch("/{client_id}", dependencies=[Depends(require_permission("mcp_client:write"))])
 async def update_client(project_id: str, client_id: str, body: McpClientPatch, session: AsyncSession = Depends(get_session),
                         tenant_id: str = Depends(current_tenant_id),
                         _: CurrentUser = Depends(require_role("editor"))):
@@ -85,7 +86,7 @@ async def update_client(project_id: str, client_id: str, body: McpClientPatch, s
     return _out(m)
 
 
-@router.get("/{client_id}/tools")
+@router.get("/{client_id}/tools", dependencies=[Depends(require_permission("mcp_client:read"))])
 async def list_remote_tools(project_id: str, client_id: str, session: AsyncSession = Depends(get_session),
                             tenant_id: str = Depends(current_tenant_id)):
     """Connect to the server and list the tools it exposes - drives the 'pick which to add' UI."""
@@ -105,7 +106,7 @@ async def list_remote_tools(project_id: str, client_id: str, session: AsyncSessi
     return {"ok": True, "tools": tools}
 
 
-@router.delete("/{client_id}")
+@router.delete("/{client_id}", dependencies=[Depends(require_permission("mcp_client:write"))])
 async def delete_client(project_id: str, client_id: str, session: AsyncSession = Depends(get_session),
                         tenant_id: str = Depends(current_tenant_id),
                         _: CurrentUser = Depends(require_role("editor"))):

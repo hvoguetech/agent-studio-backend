@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy import text
 
 import ros
+from ros.authz import public_endpoint
 from ros.config import settings
 from ros.db import SessionLocal
 from ros.util.metrics import snapshot
@@ -23,8 +24,8 @@ def _v(pkg: str) -> str:
         return "not-installed"
 
 
-@router.get("/health")
-@router.get("/livez")
+@router.get("/health", dependencies=[Depends(public_endpoint)])
+@router.get("/livez", dependencies=[Depends(public_endpoint)])
 async def health() -> dict:
     """Liveness: the process is up and serving. Cheap and dependency-free."""
     return {"status": "ok"}
@@ -65,7 +66,7 @@ def _vector_status() -> str:
     return "ok"
 
 
-@router.get("/readyz")
+@router.get("/readyz", dependencies=[Depends(public_endpoint)])
 async def readyz(request: Request) -> JSONResponse:
     """Readiness: can this instance actually serve traffic? Checks the DB, the durable
     checkpointer, and (when configured) Redis, the vector store, and a worker heartbeat. Returns
@@ -91,7 +92,7 @@ async def readyz(request: Request) -> JSONResponse:
     return JSONResponse({"ready": ready, "checks": checks}, status_code=200 if ready else 503)
 
 
-@router.get("/metrics")
+@router.get("/metrics", dependencies=[Depends(public_endpoint)])
 async def metrics() -> PlainTextResponse:
     """Prometheus text-format exposition of the in-process counters so operators can scrape
     them (per-worker; aggregate across replicas at the scraper). Complements the OTLP trace
@@ -110,7 +111,7 @@ async def metrics() -> PlainTextResponse:
     return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
 
 
-@router.get("/version")
+@router.get("/version", dependencies=[Depends(public_endpoint)])
 async def version_info() -> dict:
     # Dependency versions aid fingerprinting; gate behind the same operator-only switch as /metrics.
     if not settings.expose_metrics:

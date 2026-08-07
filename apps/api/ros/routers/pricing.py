@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import require_permission
 from ros.deps import CurrentUser, get_session, require_role
 from ros.models import ModelPrice
 from ros.tracing.pricing import load_overrides, merged_prices, set_override
@@ -24,12 +25,12 @@ async def load_pricing_overrides(session) -> None:
     load_overrides({r.model: (r.input_per_1m, r.output_per_1m) for r in rows})
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_permission("pricing:read"))])
 async def list_pricing(_: CurrentUser = Depends(require_role("admin"))):
     return {m: {"input_per_1m": i, "output_per_1m": o} for m, (i, o) in sorted(merged_prices().items())}
 
 
-@router.put("/{model}")
+@router.put("/{model}", dependencies=[Depends(require_permission("pricing:write"))])
 async def set_pricing(model: str, body: PriceIn, session: AsyncSession = Depends(get_session),
                       _: CurrentUser = Depends(require_role("admin"))):
     existing = (await session.execute(select(ModelPrice).where(ModelPrice.model == model))).scalar_one_or_none()

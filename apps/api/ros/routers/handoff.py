@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import require_permission
 from ros.deps import (
     CurrentUser,
     current_tenant_id,
@@ -34,7 +35,7 @@ def _out(h: HandoffRequest) -> dict:
     }
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_permission("handoff:read"))])
 async def list_handoffs(project_id: str, status: str = "open",
                         session: AsyncSession = Depends(get_session),
                         tenant_id: str = Depends(current_tenant_id),
@@ -42,7 +43,7 @@ async def list_handoffs(project_id: str, status: str = "open",
     return [_out(h) for h in await HandoffService.list(session, tenant_id, project_id, status=status or None)]
 
 
-@router.post("/{handoff_id}/reply")
+@router.post("/{handoff_id}/reply", dependencies=[Depends(require_permission("handoff:write"))])
 async def reply_handoff(project_id: str, handoff_id: str, body: ReplyIn,
                         session: AsyncSession = Depends(get_session),
                         tenant_id: str = Depends(current_tenant_id),

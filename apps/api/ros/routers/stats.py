@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import require_permission
 from ros.db.base import engine
 from ros.deps import current_tenant_id, get_session
 from ros.models import Project, Span, Tool, Trace, Workflow
@@ -185,7 +186,7 @@ def _rollup(row) -> dict:
     }
 
 
-@router.get("/dashboard", response_model=DashboardStatsOut)
+@router.get("/dashboard", response_model=DashboardStatsOut, dependencies=[Depends(require_permission("stat:read"))])
 async def dashboard(session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     since = datetime.utcnow() - timedelta(days=7)
     tenant = Trace.tenant_id == tenant_id
@@ -288,7 +289,7 @@ async def dashboard(session: AsyncSession = Depends(get_session), tenant_id: str
     }
 
 
-@router.get("/projects/{project_id}", response_model=ProjectStatsOut)
+@router.get("/projects/{project_id}", response_model=ProjectStatsOut, dependencies=[Depends(require_permission("stat:read"))])
 async def project_stats(project_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     """Project-scoped rollups + report rows (per workflow + ROS Assistant)."""
     since = datetime.utcnow() - timedelta(days=7)
@@ -358,7 +359,7 @@ def _ts_row(row) -> dict:
     }
 
 
-@router.get("/projects/{project_id}/analytics", response_model=AnalyticsOut)
+@router.get("/projects/{project_id}/analytics", response_model=AnalyticsOut, dependencies=[Depends(require_permission("stat:read"))])
 async def project_analytics(
     project_id: str,
     days: int = 30,

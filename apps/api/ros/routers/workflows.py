@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import require_permission
 from ros.deps import CurrentUser, current_tenant_id, get_session, require_role
 from ros.schemas.dto import (
     CanvasSaveIn,
@@ -24,14 +25,14 @@ from ros.services.workflows import WorkflowService
 router = APIRouter(prefix="/v1/projects/{project_id}/workflows", tags=["workflows"])
 
 
-@router.post("/export")
+@router.post("/export", dependencies=[Depends(require_permission("workflow:read"))])
 async def export_workflows(project_id: str, body: ExportIn, session: AsyncSession = Depends(get_session),
                            tenant_id: str = Depends(current_tenant_id)):
     """Serialize the selected workflows (canvas + executable) into a downloadable bundle."""
     return await PortabilityService.export(session, tenant_id, project_id, "workflow", body.ids)
 
 
-@router.post("/import", response_model=ImportReport)
+@router.post("/import", response_model=ImportReport, dependencies=[Depends(require_permission("workflow:write"))])
 async def import_workflows(project_id: str, body: ImportIn, session: AsyncSession = Depends(get_session),
                            tenant_id: str = Depends(current_tenant_id), user: CurrentUser = Depends(require_role("editor"))):
     """Create workflows from an uploaded bundle in THIS project (imported as drafts)."""
@@ -43,7 +44,7 @@ async def import_workflows(project_id: str, body: ImportIn, session: AsyncSessio
         raise HTTPException(422, str(e)) from e
 
 
-@router.get("", response_model=list[WorkflowOut])
+@router.get("", response_model=list[WorkflowOut], dependencies=[Depends(require_permission("workflow:read"))])
 async def list_workflows(
     project_id: str,
     session: AsyncSession = Depends(get_session),
@@ -52,7 +53,7 @@ async def list_workflows(
     return await WorkflowService.list(session, tenant_id, project_id)
 
 
-@router.post("", response_model=WorkflowOut, status_code=201)
+@router.post("", response_model=WorkflowOut, status_code=201, dependencies=[Depends(require_permission("workflow:write"))])
 async def create_workflow(
     project_id: str,
     body: WorkflowCreate,
@@ -69,13 +70,13 @@ async def create_workflow(
     return wf
 
 
-@router.post("/validate", response_model=ValidateOut)
+@router.post("/validate", response_model=ValidateOut, dependencies=[Depends(require_permission("workflow:read"))])
 async def validate_executable(project_id: str, body: ExecutableIn):
     result = WorkflowService.validate(body.executable)
     return ValidateOut(valid=result.valid, errors=result.errors, warnings=result.warnings)
 
 
-@router.get("/{workflow_id}", response_model=WorkflowOut)
+@router.get("/{workflow_id}", response_model=WorkflowOut, dependencies=[Depends(require_permission("workflow:read"))])
 async def get_workflow(
     project_id: str,
     workflow_id: str,
@@ -88,7 +89,7 @@ async def get_workflow(
     return wf
 
 
-@router.patch("/{workflow_id}", response_model=WorkflowOut)
+@router.patch("/{workflow_id}", response_model=WorkflowOut, dependencies=[Depends(require_permission("workflow:write"))])
 async def update_workflow(
     project_id: str,
     workflow_id: str,
@@ -108,7 +109,7 @@ async def update_workflow(
     return wf
 
 
-@router.put("/{workflow_id}/executable", response_model=ValidateOut)
+@router.put("/{workflow_id}/executable", response_model=ValidateOut, dependencies=[Depends(require_permission("workflow:write"))])
 async def update_executable(
     project_id: str,
     workflow_id: str,
@@ -126,7 +127,7 @@ async def update_executable(
     return ValidateOut(valid=result.valid, errors=result.errors, warnings=result.warnings)
 
 
-@router.post("/{workflow_id}/publish", response_model=WorkflowOut)
+@router.post("/{workflow_id}/publish", response_model=WorkflowOut, dependencies=[Depends(require_permission("workflow:write"))])
 async def publish_workflow(
     project_id: str,
     workflow_id: str,
@@ -167,7 +168,7 @@ async def publish_workflow(
     return wf
 
 
-@router.delete("/{workflow_id}", status_code=204)
+@router.delete("/{workflow_id}", status_code=204, dependencies=[Depends(require_permission("workflow:write"))])
 async def delete_workflow(
     project_id: str,
     workflow_id: str,
@@ -181,7 +182,7 @@ async def delete_workflow(
     await WorkflowService.delete(session, wf)
 
 
-@router.put("/{workflow_id}/canvas", response_model=ValidateOut)
+@router.put("/{workflow_id}/canvas", response_model=ValidateOut, dependencies=[Depends(require_permission("workflow:write"))])
 async def save_canvas(
     project_id: str,
     workflow_id: str,

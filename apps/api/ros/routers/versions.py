@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import require_permission
 from ros.deps import CurrentUser, current_tenant_id, get_current_user, get_session, require_role
 from ros.services.versions import ACTIVITY_TYPES, VersionService, activity_title, versioned_types
 
@@ -55,7 +56,7 @@ def _check_type(entity_type: str) -> None:
 # NOTE: these literal "/project/..." routes MUST be declared before the "/{entity_type}/..."
 # routes below, or FastAPI would match e.g. /project/{id}/activity against
 # /{entity_type}/{entity_id}/{version_no} first.
-@router.get("/project/{project_id}/activity", response_model=list[ActivityOut])
+@router.get("/project/{project_id}/activity", response_model=list[ActivityOut], dependencies=[Depends(require_permission("version:read"))])
 async def project_activity(
     project_id: str,
     session: AsyncSession = Depends(get_session),
@@ -73,7 +74,7 @@ async def project_activity(
     ]
 
 
-@router.get("/project/{project_id}/config-history", response_model=list[VersionDetailOut])
+@router.get("/project/{project_id}/config-history", response_model=list[VersionDetailOut], dependencies=[Depends(require_permission("version:read"))])
 async def project_config_history(
     project_id: str,
     session: AsyncSession = Depends(get_session),
@@ -84,7 +85,7 @@ async def project_config_history(
     return await VersionService.list(session, tenant_id, "project", project_id)
 
 
-@router.get("/{entity_type}/{entity_id}", response_model=list[VersionOut])
+@router.get("/{entity_type}/{entity_id}", response_model=list[VersionOut], dependencies=[Depends(require_permission("version:read"))])
 async def list_versions(
     entity_type: str,
     entity_id: str,
@@ -95,7 +96,7 @@ async def list_versions(
     return await VersionService.list(session, tenant_id, entity_type, entity_id)
 
 
-@router.get("/{entity_type}/{entity_id}/{version_no}", response_model=VersionDetailOut)
+@router.get("/{entity_type}/{entity_id}/{version_no}", response_model=VersionDetailOut, dependencies=[Depends(require_permission("version:read"))])
 async def get_version(
     entity_type: str,
     entity_id: str,
@@ -110,7 +111,7 @@ async def get_version(
     return ev
 
 
-@router.post("/{entity_type}/{entity_id}/restore", response_model=VersionDetailOut)
+@router.post("/{entity_type}/{entity_id}/restore", response_model=VersionDetailOut, dependencies=[Depends(require_permission("version:write"))])
 async def restore_version(
     entity_type: str,
     entity_id: str,

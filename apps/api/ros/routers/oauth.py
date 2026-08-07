@@ -21,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ros.auth_providers.resolver import AuthResolver
+from ros.authz import public_endpoint, require_permission
 from ros.config import settings
 from ros.deps import CurrentUser, current_tenant_id, get_session, require_role
 from ros.models import AuthProvider
@@ -61,7 +62,7 @@ async def _load(session, tenant_id: str, project_id: str, ap_id: str) -> AuthPro
     return ap
 
 
-@router.post(_PREFIX + "/start")
+@router.post(_PREFIX + "/start", dependencies=[Depends(require_permission("connection:write"))])
 async def oauth_start(
     project_id: str, ap_id: str,
     body: OAuthStartIn | None = None,
@@ -103,7 +104,7 @@ async def oauth_start(
     return {"authorize_url": f"{cfg['authorize_url']}?{urlencode(q)}"}
 
 
-@router.get("/v1/oauth/callback", response_class=HTMLResponse)
+@router.get("/v1/oauth/callback", response_class=HTMLResponse, dependencies=[Depends(public_endpoint)])
 async def oauth_callback(
     code: str | None = None, state: str | None = None, error: str | None = None,
     session: AsyncSession = Depends(get_session),
@@ -168,7 +169,7 @@ async def oauth_callback(
     return HTMLResponse("<h3>✅ Connected</h3><p>You can close this window and return to ROS.</p>")
 
 
-@router.get(_PREFIX + "/status")
+@router.get(_PREFIX + "/status", dependencies=[Depends(require_permission("connection:read"))])
 async def oauth_status(
     project_id: str, ap_id: str,
     session: AsyncSession = Depends(get_session),

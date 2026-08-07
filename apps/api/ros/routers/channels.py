@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import public_endpoint, require_permission
 from ros.channels import email as email_ch
 from ros.config import settings
 from ros.db.base import SessionLocal
@@ -53,13 +54,13 @@ def _out(ch) -> dict:
     return item
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_permission("channel:read"))])
 async def list_channels(project_id: str, session: AsyncSession = Depends(get_session),
                         tenant_id: str = Depends(current_tenant_id)):
     return [_out(c) for c in await ChannelService.list(session, tenant_id, project_id)]
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, dependencies=[Depends(require_permission("channel:write"))])
 async def create_channel(project_id: str, body: ChannelIn, session: AsyncSession = Depends(get_session),
                          tenant_id: str = Depends(current_tenant_id),
                          _: CurrentUser = Depends(require_role("editor"))):
@@ -71,7 +72,7 @@ async def create_channel(project_id: str, body: ChannelIn, session: AsyncSession
     return _out(ch)
 
 
-@router.patch("/{channel_id}")
+@router.patch("/{channel_id}", dependencies=[Depends(require_permission("channel:write"))])
 async def update_channel(project_id: str, channel_id: str, body: ChannelPatch,
                          session: AsyncSession = Depends(get_session),
                          tenant_id: str = Depends(current_tenant_id),
@@ -84,7 +85,7 @@ async def update_channel(project_id: str, channel_id: str, body: ChannelPatch,
     return _out(ch)
 
 
-@router.delete("/{channel_id}")
+@router.delete("/{channel_id}", dependencies=[Depends(require_permission("channel:write"))])
 async def delete_channel(project_id: str, channel_id: str, session: AsyncSession = Depends(get_session),
                          tenant_id: str = Depends(current_tenant_id),
                          _: CurrentUser = Depends(require_role("editor"))):
@@ -138,7 +139,7 @@ async def _maybe_open_handoff(ch, result: dict, *, customer, customer_message, r
     return interrupt_ack(interrupts) or "A team member will follow up with you shortly."
 
 
-@public.post("/v1/channels/email/{key}/inbound")
+@public.post("/v1/channels/email/{key}/inbound", dependencies=[Depends(public_endpoint)])
 async def email_inbound(key: str, request: Request, run_service: RunService = Depends(get_run_service)):
     ch, workflow_id = await _resolve("email", key)
     if not rate_limiter.allow(f"email:{key}", rate=120, per=60):

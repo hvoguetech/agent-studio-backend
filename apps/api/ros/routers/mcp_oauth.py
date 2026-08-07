@@ -27,10 +27,11 @@ import html as _html
 import secrets as _secrets
 import urllib.parse
 
-from fastapi import APIRouter, Form, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import select
 
+from ros.authz import public_endpoint
 from ros.config import settings
 from ros.db.base import SessionLocal
 from ros.models import OAuthClient
@@ -86,7 +87,7 @@ def _oauth_error(error: str, description: str, status_code: int = 400) -> JSONRe
 
 
 # --- Discovery (RFC 8414 / RFC 9728) --------------------------------------------------------
-@router.get("/.well-known/oauth-authorization-server")
+@router.get("/.well-known/oauth-authorization-server", dependencies=[Depends(public_endpoint)])
 async def authorization_server_metadata():
     _enabled()
     b = _base()
@@ -102,7 +103,7 @@ async def authorization_server_metadata():
     }
 
 
-@router.get("/.well-known/oauth-protected-resource/v1/mcp/{project_id}")
+@router.get("/.well-known/oauth-protected-resource/v1/mcp/{project_id}", dependencies=[Depends(public_endpoint)])
 async def protected_resource_metadata(project_id: str):
     _enabled()
     b = _base()
@@ -110,7 +111,7 @@ async def protected_resource_metadata(project_id: str):
 
 
 # --- Dynamic client registration (RFC 7591) -------------------------------------------------
-@router.post("/v1/oauth/register", status_code=201)
+@router.post("/v1/oauth/register", status_code=201, dependencies=[Depends(public_endpoint)])
 async def register_client(body: dict):
     _enabled()
     redirect_uris = body.get("redirect_uris") or []
@@ -205,7 +206,7 @@ def _authorize_fields(q: dict) -> dict:
     }
 
 
-@router.get("/v1/oauth/authorize", response_class=HTMLResponse)
+@router.get("/v1/oauth/authorize", response_class=HTMLResponse, dependencies=[Depends(public_endpoint)])
 async def authorize_form(request: Request):
     _enabled()
     q = dict(request.query_params)
@@ -219,7 +220,7 @@ async def authorize_form(request: Request):
     return HTMLResponse(_consent_html(_authorize_fields(q), client))
 
 
-@router.post("/v1/oauth/authorize")
+@router.post("/v1/oauth/authorize", dependencies=[Depends(public_endpoint)])
 async def authorize_submit(
     request: Request,
     email: str = Form(...),
@@ -267,7 +268,7 @@ async def authorize_submit(
 
 
 # --- Token endpoint -------------------------------------------------------------------------
-@router.post("/v1/oauth/token")
+@router.post("/v1/oauth/token", dependencies=[Depends(public_endpoint)])
 async def token(
     grant_type: str = Form(...),
     code: str = Form(""),

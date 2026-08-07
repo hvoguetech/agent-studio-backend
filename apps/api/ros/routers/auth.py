@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import public_endpoint, require_permission
 from ros.config import settings
 from ros.deps import (
     CurrentUser,
@@ -124,7 +125,7 @@ def _user_out(u) -> dict:
     return {"id": u.id, "email": u.email, "role": u.role, "status": u.status, "tenant_id": u.tenant_id}
 
 
-@router.post("/register", status_code=201)
+@router.post("/register", status_code=201, dependencies=[Depends(public_endpoint)])
 async def register(body: RegisterIn, request: Request, session: AsyncSession = Depends(get_session)):
     if not settings.allow_open_signup:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "open signup is disabled; ask an admin for an invite")
@@ -140,7 +141,7 @@ async def register(body: RegisterIn, request: Request, session: AsyncSession = D
     return {**AuthService.tokens_for(user), "user": _user_out(user)}
 
 
-@router.post("/login")
+@router.post("/login", dependencies=[Depends(public_endpoint)])
 async def login(body: LoginIn, request: Request, session: AsyncSession = Depends(get_session)):
     _auth_throttle(request, str(body.email))
     try:
@@ -162,7 +163,7 @@ async def login(body: LoginIn, request: Request, session: AsyncSession = Depends
     return {**AuthService.tokens_for(user), "user": _user_out(user)}
 
 
-@router.post("/refresh")
+@router.post("/refresh", dependencies=[Depends(public_endpoint)])
 async def refresh(body: RefreshIn, request: Request, session: AsyncSession = Depends(get_session)):
     _auth_throttle(request)
     # Decode WITHOUT the revoked-check so a reused (already-rotated) refresh token is detected
@@ -190,7 +191,7 @@ async def refresh(body: RefreshIn, request: Request, session: AsyncSession = Dep
     return AuthService.tokens_for(user)
 
 
-@router.post("/logout")
+@router.post("/logout", dependencies=[Depends(public_endpoint)])
 async def logout(body: LogoutIn):
     """Revoke the presented refresh token (this device/session). Unauthenticated: possession of
     the signed token is the proof, so it works even after the access token expires (finding d)."""
@@ -203,7 +204,7 @@ async def logout(body: LogoutIn):
     return {"ok": True}
 
 
-@router.post("/logout-all")
+@router.post("/logout-all", dependencies=[Depends(require_permission("account:self"))])
 async def logout_all(request: Request, user: CurrentUser = Depends(get_current_user)):
     """Sign out every session for the current user (all devices) by advancing their revocation
     cutoff so all previously-issued access/refresh tokens are rejected (finding d)."""
@@ -213,13 +214,13 @@ async def logout_all(request: Request, user: CurrentUser = Depends(get_current_u
     return {"ok": True}
 
 
-@router.get("/me")
+@router.get("/me", dependencies=[Depends(require_permission("account:self"))])
 async def me(user: CurrentUser = Depends(get_current_user)):
     return {"id": user.id, "email": user.email, "role": user.role, "tenant_id": user.tenant_id,
             "is_fallback": user.is_fallback}
 
 
-@router.post("/set-password")
+@router.post("/set-password", dependencies=[Depends(require_permission("account:self"))])
 async def set_my_password(body: PasswordIn, user: CurrentUser = Depends(get_current_user),
                           session: AsyncSession = Depends(get_session)):
     if user.is_fallback:
@@ -232,14 +233,14 @@ async def set_my_password(body: PasswordIn, user: CurrentUser = Depends(get_curr
 
 
 # --- team management (admin+) ---
-@team_router.get("/members")
+@team_router.get("/members", dependencies=[Depends(require_permission("team:read"))])
 async def list_members(session: AsyncSession = Depends(get_session),
                        tenant_id: str = Depends(current_tenant_id),
                        _: CurrentUser = Depends(require_role("admin"))):
     return [_user_out(u) for u in await AuthService.list_members(session, tenant_id)]
 
 
-@team_router.post("/members", status_code=201)
+@team_router.post("/members", status_code=201, dependencies=[Depends(require_permission("team:write"))])
 async def invite_member(body: InviteIn, request: Request, session: AsyncSession = Depends(get_session),
                         admin: CurrentUser = Depends(require_role("admin"))):
     try:
@@ -265,7 +266,7 @@ async def invite_member(body: InviteIn, request: Request, session: AsyncSession 
     return out
 
 
-@router.get("/invite-info")
+@router.get("/invite-info", dependencies=[Depends(public_endpoint)])
 async def invite_info(token: str, session: AsyncSession = Depends(get_session)):
     """Public: validate an invite token and return who it's for (for the accept screen)."""
     try:
@@ -278,7 +279,7 @@ async def invite_info(token: str, session: AsyncSession = Depends(get_session)):
     return {"email": user.email, "role": user.role}
 
 
-@router.post("/accept-invite")
+@router.post("/accept-invite", dependencies=[Depends(public_endpoint)])
 async def accept_invite(body: AcceptInviteIn, request: Request, session: AsyncSession = Depends(get_session)):
     """Public: redeem an invite token, set the first password, and log the user in."""
     _auth_throttle(request)
@@ -297,7 +298,7 @@ async def accept_invite(body: AcceptInviteIn, request: Request, session: AsyncSe
     return {**AuthService.tokens_for(user), "user": _user_out(user)}
 
 
-@team_router.patch("/members/{user_id}")
+@team_router.patch("/members/{user_id}", dependencies=[Depends(require_permission("team:write"))])
 async def update_member(user_id: str, body: MemberPatch, request: Request,
                         session: AsyncSession = Depends(get_session),
                         admin: CurrentUser = Depends(require_role("admin"))):
@@ -317,7 +318,7 @@ async def update_member(user_id: str, body: MemberPatch, request: Request,
     return _user_out(user)
 
 
-@team_router.delete("/members/{user_id}")
+@team_router.delete("/members/{user_id}", dependencies=[Depends(require_permission("team:write"))])
 async def deactivate_member(user_id: str, request: Request, session: AsyncSession = Depends(get_session),
                             admin: CurrentUser = Depends(require_role("admin"))):
     if user_id == admin.id:
@@ -350,7 +351,7 @@ async def _send_link_email(*, to: str, subject: str, intro: str, link: str, expi
     return await send_email(to=to, subject=subject, body=body, html=html)
 
 
-@router.post("/request-password-reset")
+@router.post("/request-password-reset", dependencies=[Depends(public_endpoint)])
 async def request_password_reset(body: PasswordResetRequestIn, request: Request,
                                  session: AsyncSession = Depends(get_session)):
     """Public: email a signed reset link. Always returns ok (never reveals whether the address
@@ -372,7 +373,7 @@ async def request_password_reset(body: PasswordResetRequestIn, request: Request,
     return {"ok": True}
 
 
-@router.post("/reset-password")
+@router.post("/reset-password", dependencies=[Depends(public_endpoint)])
 async def reset_password(body: PasswordResetIn, request: Request,
                          session: AsyncSession = Depends(get_session)):
     """Public: redeem a reset token, set a new password, and sign out all existing sessions.
@@ -399,7 +400,7 @@ class TokenIn(BaseModel):
     token: str
 
 
-@router.post("/request-email-verification")
+@router.post("/request-email-verification", dependencies=[Depends(require_permission("account:self"))])
 async def request_email_verification(request: Request, user: CurrentUser = Depends(get_current_user)):
     if user.is_fallback or not user.email:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "no verifiable email for this account")
@@ -411,7 +412,7 @@ async def request_email_verification(request: Request, user: CurrentUser = Depen
     return {"ok": True} if sent else {"ok": True, "verify_url": link}
 
 
-@router.post("/verify-email")
+@router.post("/verify-email", dependencies=[Depends(public_endpoint)])
 async def verify_email(body: TokenIn, session: AsyncSession = Depends(get_session)):
     try:
         claims = decode_token(body.token, expected_type="email_verify")
@@ -430,7 +431,7 @@ class TotpCodeIn(BaseModel):
     code: str
 
 
-@router.post("/mfa/totp/enroll")
+@router.post("/mfa/totp/enroll", dependencies=[Depends(require_permission("account:self"))])
 async def totp_enroll(user: CurrentUser = Depends(get_current_user), session: AsyncSession = Depends(get_session)):
     """Generate a TOTP secret (NOT yet active - confirm a code to enable). Returns the secret
     and an otpauth:// URL for an authenticator-app QR."""
@@ -443,7 +444,7 @@ async def totp_enroll(user: CurrentUser = Depends(get_current_user), session: As
     return {"secret": secret, "otpauth_url": totp_provisioning_uri(secret, account=u.email, issuer=settings.app_name)}
 
 
-@router.post("/mfa/totp/confirm")
+@router.post("/mfa/totp/confirm", dependencies=[Depends(require_permission("account:self"))])
 async def totp_confirm(body: TotpCodeIn, user: CurrentUser = Depends(get_current_user),
                        session: AsyncSession = Depends(get_session)):
     u = await AuthService.get_user(session, user.id)
@@ -452,7 +453,7 @@ async def totp_confirm(body: TotpCodeIn, user: CurrentUser = Depends(get_current
     return {"ok": True, "mfa_enabled": True}
 
 
-@router.post("/mfa/totp/disable")
+@router.post("/mfa/totp/disable", dependencies=[Depends(require_permission("account:self"))])
 async def totp_disable(body: TotpCodeIn, user: CurrentUser = Depends(get_current_user),
                        session: AsyncSession = Depends(get_session)):
     """Disable MFA. Requires a current code so a hijacked session can't silently turn it off."""
@@ -482,7 +483,7 @@ def _tenant_out(t) -> dict:
     return {"id": t.id, "name": t.name, "plan": t.plan, "settings": t.settings or {}}
 
 
-@workspace_router.get("")
+@workspace_router.get("", dependencies=[Depends(require_permission("workspace:read"))])
 async def get_workspace(session: AsyncSession = Depends(get_session),
                         tenant_id: str = Depends(current_tenant_id),
                         _: CurrentUser = Depends(require_role("admin"))):
@@ -494,7 +495,7 @@ async def get_workspace(session: AsyncSession = Depends(get_session),
     return _tenant_out(t)
 
 
-@workspace_router.patch("")
+@workspace_router.patch("", dependencies=[Depends(require_permission("workspace:write"))])
 async def update_workspace(body: WorkspaceUpdateIn, request: Request,
                            session: AsyncSession = Depends(get_session),
                            owner: CurrentUser = Depends(require_role("owner"))):
@@ -511,7 +512,7 @@ async def update_workspace(body: WorkspaceUpdateIn, request: Request,
     return _tenant_out(t)
 
 
-@workspace_router.delete("", status_code=204)
+@workspace_router.delete("", status_code=204, dependencies=[Depends(require_permission("workspace:write"))])
 async def delete_workspace(body: WorkspaceDeleteIn, request: Request,
                            session: AsyncSession = Depends(get_session),
                            owner: CurrentUser = Depends(require_role("owner"))):
@@ -547,7 +548,7 @@ def _apikey_out(k, *, plaintext: str | None = None) -> dict:
     return out
 
 
-@apikeys_router.get("")
+@apikeys_router.get("", dependencies=[Depends(require_permission("apikey:read"))])
 async def list_api_keys(session: AsyncSession = Depends(get_session),
                         tenant_id: str = Depends(current_tenant_id),
                         _: CurrentUser = Depends(require_role("admin"))):
@@ -556,7 +557,7 @@ async def list_api_keys(session: AsyncSession = Depends(get_session),
     return [_apikey_out(k) for k in await ApiKeyService.list(session, tenant_id)]
 
 
-@apikeys_router.post("", status_code=201)
+@apikeys_router.post("", status_code=201, dependencies=[Depends(require_permission("apikey:write"))])
 async def create_api_key(body: ApiKeyCreateIn, request: Request,
                          session: AsyncSession = Depends(get_session),
                          admin: CurrentUser = Depends(require_role("admin"))):
@@ -580,7 +581,7 @@ async def create_api_key(body: ApiKeyCreateIn, request: Request,
     return _apikey_out(key, plaintext=plaintext)
 
 
-@apikeys_router.delete("/{key_id}", status_code=204)
+@apikeys_router.delete("/{key_id}", status_code=204, dependencies=[Depends(require_permission("apikey:write"))])
 async def revoke_api_key(key_id: str, request: Request,
                          session: AsyncSession = Depends(get_session),
                          admin: CurrentUser = Depends(require_role("admin"))):

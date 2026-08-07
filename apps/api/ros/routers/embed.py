@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import require_permission
 from ros.deps import CurrentUser, get_session, require_role
 from ros.schemas.dto import EndUser
 from ros.security import create_session_token
@@ -35,7 +36,7 @@ class SessionTokenOut(BaseModel):
     expires_in: int  # seconds
 
 
-@router.post("/session-tokens", response_model=SessionTokenOut)
+@router.post("/session-tokens", response_model=SessionTokenOut, dependencies=[Depends(require_permission("embed:write"))])
 async def mint_session_token(
     project_id: str,
     body: SessionTokenIn,
@@ -79,7 +80,7 @@ def _embed_out(project) -> EmbedSettingsOut:
     )
 
 
-@router.get("/embed", response_model=EmbedSettingsOut)
+@router.get("/embed", response_model=EmbedSettingsOut, dependencies=[Depends(require_permission("embed:read"))])
 async def get_embed(project_id: str, session: AsyncSession = Depends(get_session), user: CurrentUser = Depends(require_role("editor"))):
     proj = await ProjectService.get(session, user.tenant_id, project_id)
     if proj is None:
@@ -87,7 +88,7 @@ async def get_embed(project_id: str, session: AsyncSession = Depends(get_session
     return _embed_out(proj)
 
 
-@router.put("/embed", response_model=EmbedSettingsOut)
+@router.put("/embed", response_model=EmbedSettingsOut, dependencies=[Depends(require_permission("embed:write"))])
 async def set_embed(project_id: str, body: EmbedSettingsIn, session: AsyncSession = Depends(get_session), user: CurrentUser = Depends(require_role("editor"))):
     proj = await ProjectService.get(session, user.tenant_id, project_id)
     if proj is None:

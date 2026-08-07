@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
+from ros.authz import public_endpoint
 from ros.config import settings
 from ros.deps import client_ip, get_run_service, get_session
 from ros.models import Project, Workflow
@@ -71,7 +72,7 @@ class EmbedRunIn(BaseModel):
     session_token: str | None = None
 
 
-@router.get("/config", response_model=EmbedConfigOut)
+@router.get("/config", response_model=EmbedConfigOut, dependencies=[Depends(public_endpoint)])
 async def embed_config(key: str, session: AsyncSession = Depends(get_session)):
     proj = await _project(session, key)
     e = (proj.config or {}).get("embed") or {}
@@ -80,14 +81,14 @@ async def embed_config(key: str, session: AsyncSession = Depends(get_session)):
     return EmbedConfigOut(name=proj.name, allowed_origins=e.get("allowed_origins") or [])
 
 
-@router.get("/components")
+@router.get("/components", dependencies=[Depends(public_endpoint)])
 async def embed_components(key: str, session: AsyncSession = Depends(get_session)):
     proj = await _project(session, key)
     comps = await ComponentService.list(session, proj.tenant_id, proj.id)
     return [{"id": c.id, "name": c.name, "html": c.html, "css": c.css, "actions": c.actions} for c in comps]
 
 
-@router.post("/runs")
+@router.post("/runs", dependencies=[Depends(public_endpoint)])
 async def embed_create_run(key: str, body: EmbedRunIn, request: Request, session: AsyncSession = Depends(get_session), run_service: RunService = Depends(get_run_service)):
     proj = await _project(session, key)
     _embed_rate_limit(
@@ -125,7 +126,7 @@ async def embed_create_run(key: str, body: EmbedRunIn, request: Request, session
     return {"id": run.id, "thread_id": run.thread_id}
 
 
-@router.get("/runs/{run_id}/stream")
+@router.get("/runs/{run_id}/stream", dependencies=[Depends(public_endpoint)])
 async def embed_stream(
     key: str, run_id: str, request: Request,
     session: AsyncSession = Depends(get_session),
@@ -161,7 +162,7 @@ class EmbedResumeIn(BaseModel):
     value: Any = True
 
 
-@router.post("/runs/{run_id}/resume")
+@router.post("/runs/{run_id}/resume", dependencies=[Depends(public_endpoint)])
 async def embed_resume(key: str, run_id: str, body: EmbedResumeIn, request: Request, session: AsyncSession = Depends(get_session), run_service: RunService = Depends(get_run_service)):
     """Resume an interrupted (human-in-the-loop) run from the widget - mirrors the authed
     resume endpoint but resolves the tenant+project from the publishable key. resume() is

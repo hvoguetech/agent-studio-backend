@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import require_permission
 from ros.deps import CurrentUser, current_tenant_id, get_session, require_role
 from ros.schemas.dto import (
     KbSourceCreate,
@@ -140,12 +141,12 @@ async def _queue_ingest(session, tenant_id: str, src, *, reingest: bool = False,
         await KnowledgeService.mark_error(session, src, _QUEUE_FULL_MSG)
 
 
-@router.get("/sources", response_model=list[KbSourceOut])
+@router.get("/sources", response_model=list[KbSourceOut], dependencies=[Depends(require_permission("knowledge:read"))])
 async def list_sources(project_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     return await KnowledgeService.list_sources(session, tenant_id, project_id)
 
 
-@router.post("/sources", response_model=KbSourceOut, status_code=201)
+@router.post("/sources", response_model=KbSourceOut, status_code=201, dependencies=[Depends(require_permission("knowledge:write"))])
 async def add_source(project_id: str, body: KbSourceCreate, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id), user: CurrentUser = Depends(require_role("editor"))):
     src = await KnowledgeService.create_source(session, tenant_id, project_id, kind=body.kind, name=body.name, uri=body.uri, text=body.text, folder=body.folder, chunking_strategy=body.chunking_strategy, meta=body.meta)
     await safe_snapshot(session, "kb_source", src, author=user, label="added")
@@ -155,7 +156,7 @@ async def add_source(project_id: str, body: KbSourceCreate, session: AsyncSessio
     return src
 
 
-@router.post("/sources/upload", response_model=KbSourceOut, status_code=201)
+@router.post("/sources/upload", response_model=KbSourceOut, status_code=201, dependencies=[Depends(require_permission("knowledge:write"))])
 async def upload_source(
     project_id: str,
     file: UploadFile = File(...),
@@ -202,19 +203,19 @@ async def upload_source(
     return src
 
 
-@router.get("/folders", response_model=list[str])
+@router.get("/folders", response_model=list[str], dependencies=[Depends(require_permission("knowledge:read"))])
 async def list_folders(project_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     return await KnowledgeService.list_folders(session, tenant_id, project_id)
 
 
-@router.get("/health")
+@router.get("/health", dependencies=[Depends(require_permission("knowledge:read"))])
 async def embedding_health(project_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     """Embedding-dimension health: flags sources embedded with a different model than the
     project's current embedder (which would silently return no search results)."""
     return await KnowledgeService.embedding_health(session, tenant_id, project_id)
 
 
-@router.post("/sources/{source_id}/reingest")
+@router.post("/sources/{source_id}/reingest", dependencies=[Depends(require_permission("knowledge:write"))])
 async def reingest_source(project_id: str, source_id: str, body: RechunkIn | None = None,
                           session: AsyncSession = Depends(get_session),
                           tenant_id: str = Depends(current_tenant_id),
@@ -240,7 +241,7 @@ async def reingest_source(project_id: str, source_id: str, body: RechunkIn | Non
     return {"id": src.id, "status": src.status, "chunks": src.chunks}
 
 
-@router.post("/sources/rechunk")
+@router.post("/sources/rechunk", dependencies=[Depends(require_permission("knowledge:write"))])
 async def rechunk_sources(project_id: str, body: RechunkBulkIn, session: AsyncSession = Depends(get_session),
                           tenant_id: str = Depends(current_tenant_id),
                           _: CurrentUser = Depends(require_role("editor"))):
@@ -269,7 +270,7 @@ async def rechunk_sources(project_id: str, body: RechunkBulkIn, session: AsyncSe
     return [{"id": src.id, "status": src.status, "chunks": src.chunks} for src in rows]
 
 
-@router.patch("/sources/{source_id}", response_model=KbSourceOut)
+@router.patch("/sources/{source_id}", response_model=KbSourceOut, dependencies=[Depends(require_permission("knowledge:write"))])
 async def update_source(project_id: str, source_id: str, body: dict, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id), _: CurrentUser = Depends(require_role("editor"))):
     """Move a source between folders (the only mutable field; content requires re-ingest).
     Not snapshotted: a folder move is minor bookkeeping, not an add/remove worth logging."""
@@ -286,7 +287,7 @@ async def update_source(project_id: str, source_id: str, body: dict, session: As
     return src
 
 
-@router.delete("/sources/{source_id}", status_code=204)
+@router.delete("/sources/{source_id}", status_code=204, dependencies=[Depends(require_permission("knowledge:write"))])
 async def delete_source(project_id: str, source_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id), user: CurrentUser = Depends(require_role("editor"))):
     from sqlalchemy import select
 
@@ -299,20 +300,20 @@ async def delete_source(project_id: str, source_id: str, session: AsyncSession =
     await KnowledgeService.delete_source(session, src)
 
 
-@router.post("/search")
+@router.post("/search", dependencies=[Depends(require_permission("knowledge:read"))])
 async def search(project_id: str, body: KnowledgeSearchIn, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     hits = await KnowledgeService.search(session, tenant_id, project_id, body.query, top_k=body.top_k, folders=body.folders, hybrid=body.hybrid, rerank=body.rerank)
     return [{"text": h.text, "score": round(h.score, 4), "source_id": h.metadata.get("source_id")} for h in hits]
 
 
-@router.post("/dedupe")
+@router.post("/dedupe", dependencies=[Depends(require_permission("knowledge:write"))])
 async def dedupe_chunks(project_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id), _: CurrentUser = Depends(require_role("editor"))):
     """Remove exact-duplicate chunks (identical text) project-wide, keeping one copy of each.
     Returns {removed, groups, sources_affected, remaining}."""
     return await KnowledgeService.dedupe_chunks(session, tenant_id, project_id)
 
 
-@router.post("/map")
+@router.post("/map", dependencies=[Depends(require_permission("knowledge:read"))])
 async def chunk_map(project_id: str, body: KnowledgeMapIn, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     """Chunk-map visualizer: 2-D (PCA) projection of the project's chunk vectors, colored by
     source, with an optional query overlay showing what retrieval returns. Read-only."""
@@ -323,7 +324,7 @@ async def chunk_map(project_id: str, body: KnowledgeMapIn, session: AsyncSession
     )
 
 
-@router.get("/chunk")
+@router.get("/chunk", dependencies=[Depends(require_permission("knowledge:read"))])
 async def chunk_detail(project_id: str, chunk_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     """Full text (+ light metadata) of a single chunk, fetched on demand when a dot is selected
     in the chunk map (the map payload carries only a short preview). Scoped to the tenant/project.
@@ -334,24 +335,24 @@ async def chunk_detail(project_id: str, chunk_id: str, session: AsyncSession = D
     return detail
 
 
-@qa_router.get("", response_model=list[QaPairOut])
+@qa_router.get("", response_model=list[QaPairOut], dependencies=[Depends(require_permission("knowledge:read"))])
 async def list_qa(project_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     return await KnowledgeService.list_qa(session, tenant_id, project_id)
 
 
-@qa_router.get("/kinds", response_model=list[str])
+@qa_router.get("/kinds", response_model=list[str], dependencies=[Depends(require_permission("knowledge:read"))])
 async def list_qa_kinds(project_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     return await KnowledgeService.list_qa_kinds(session, tenant_id, project_id)
 
 
-@qa_router.post("", response_model=QaPairOut, status_code=201)
+@qa_router.post("", response_model=QaPairOut, status_code=201, dependencies=[Depends(require_permission("knowledge:write"))])
 async def add_qa(project_id: str, body: QaPairCreate, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id), user: CurrentUser = Depends(require_role("editor"))):
     qa = await KnowledgeService.create_qa(session, tenant_id, project_id, question=body.question, answer=body.answer, kind=body.kind, tags=body.tags)
     await safe_snapshot(session, "qa_pair", qa, author=user, label="added")
     return qa
 
 
-@qa_router.patch("/{qa_id}", response_model=QaPairOut)
+@qa_router.patch("/{qa_id}", response_model=QaPairOut, dependencies=[Depends(require_permission("knowledge:write"))])
 async def update_qa(project_id: str, qa_id: str, body: QaPairUpdate,
                     session: AsyncSession = Depends(get_session),
                     tenant_id: str = Depends(current_tenant_id),
@@ -373,7 +374,7 @@ async def update_qa(project_id: str, qa_id: str, body: QaPairUpdate,
     return qa
 
 
-@qa_router.delete("/{qa_id}", status_code=204)
+@qa_router.delete("/{qa_id}", status_code=204, dependencies=[Depends(require_permission("knowledge:write"))])
 async def delete_qa(project_id: str, qa_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id), user: CurrentUser = Depends(require_role("editor"))):
     from sqlalchemy import select
 

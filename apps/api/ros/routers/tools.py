@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import require_permission
 from ros.deps import CurrentUser, current_tenant_id, get_session, require_role
 from ros.schemas.contracts import validate_against_id
 from ros.schemas.dto import (
@@ -23,14 +24,14 @@ from ros.services.versions import safe_snapshot
 router = APIRouter(prefix="/v1/projects/{project_id}/tools", tags=["tools"])
 
 
-@router.post("/export")
+@router.post("/export", dependencies=[Depends(require_permission("tool:read"))])
 async def export_tools(project_id: str, body: ExportIn, session: AsyncSession = Depends(get_session),
                        tenant_id: str = Depends(current_tenant_id)):
     """Serialize the selected tools into a downloadable single-type bundle."""
     return await PortabilityService.export(session, tenant_id, project_id, "tool", body.ids)
 
 
-@router.post("/import", response_model=ImportReport)
+@router.post("/import", response_model=ImportReport, dependencies=[Depends(require_permission("tool:write"))])
 async def import_tools(project_id: str, body: ImportIn, session: AsyncSession = Depends(get_session),
                        tenant_id: str = Depends(current_tenant_id), user: CurrentUser = Depends(require_role("editor"))):
     """Create tools from an uploaded bundle in THIS project (new ids, auto-renamed on collision)."""
@@ -42,7 +43,7 @@ async def import_tools(project_id: str, body: ImportIn, session: AsyncSession = 
         raise HTTPException(422, str(e)) from e
 
 
-@router.get("", response_model=list[ToolOut])
+@router.get("", response_model=list[ToolOut], dependencies=[Depends(require_permission("tool:read"))])
 async def list_tools(project_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     # Built-ins are project defaults: make sure this project has them before listing (idempotent),
     # so every project - including freshly imported ones - always has the platform capabilities.
@@ -50,7 +51,7 @@ async def list_tools(project_id: str, session: AsyncSession = Depends(get_sessio
     return await ToolService.list(session, tenant_id, project_id)
 
 
-@router.post("", response_model=ToolOut, status_code=201)
+@router.post("", response_model=ToolOut, status_code=201, dependencies=[Depends(require_permission("tool:write"))])
 async def create_tool(project_id: str, body: ToolCreate, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id),
                       user: CurrentUser = Depends(require_role("editor"))):
     cfg = {**body.config, "name": body.name, "kind": body.kind}
@@ -62,7 +63,7 @@ async def create_tool(project_id: str, body: ToolCreate, session: AsyncSession =
     return tool
 
 
-@router.get("/{tool_id}", response_model=ToolOut)
+@router.get("/{tool_id}", response_model=ToolOut, dependencies=[Depends(require_permission("tool:read"))])
 async def get_tool(project_id: str, tool_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     tool = await ToolService.get(session, tenant_id, tool_id)
     if tool is None:
@@ -70,7 +71,7 @@ async def get_tool(project_id: str, tool_id: str, session: AsyncSession = Depend
     return tool
 
 
-@router.patch("/{tool_id}", response_model=ToolOut)
+@router.patch("/{tool_id}", response_model=ToolOut, dependencies=[Depends(require_permission("tool:write"))])
 async def update_tool(project_id: str, tool_id: str, body: ToolUpdate, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id),
                       user: CurrentUser = Depends(require_role("editor"))):
     tool = await ToolService.get(session, tenant_id, tool_id)
@@ -86,7 +87,7 @@ async def update_tool(project_id: str, tool_id: str, body: ToolUpdate, session: 
     return tool
 
 
-@router.delete("/{tool_id}", status_code=204)
+@router.delete("/{tool_id}", status_code=204, dependencies=[Depends(require_permission("tool:write"))])
 async def delete_tool(project_id: str, tool_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id),
                       _: CurrentUser = Depends(require_role("editor"))):
     tool = await ToolService.get(session, tenant_id, tool_id)
@@ -97,7 +98,7 @@ async def delete_tool(project_id: str, tool_id: str, session: AsyncSession = Dep
     await ToolService.delete(session, tool)
 
 
-@router.post("/{tool_id}/test")
+@router.post("/{tool_id}/test", dependencies=[Depends(require_permission("tool:write"))])
 async def test_tool(project_id: str, tool_id: str, body: ToolTestIn, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id),
                     user: CurrentUser = Depends(require_role("editor"))):
     tool = await ToolService.get(session, tenant_id, tool_id)

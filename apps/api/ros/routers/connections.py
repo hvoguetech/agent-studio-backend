@@ -18,6 +18,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import require_permission
 from ros.deps import CurrentUser, current_tenant_id, get_current_user, get_session
 from ros.schemas.dto import UserConnectionIn
 from ros.services.auth_providers import AuthProviderService
@@ -47,7 +48,7 @@ async def _load_per_user(session, tenant_id: str, ap_id: str, user: CurrentUser)
     return ap
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_permission("connection:self"))])
 async def list_my_connections(project_id: str, session: AsyncSession = Depends(get_session),
                               tenant_id: str = Depends(current_tenant_id), user: CurrentUser = Depends(get_current_user)):
     """The per-user providers this project defines, each with whether the CALLER has connected it.
@@ -63,14 +64,14 @@ async def list_my_connections(project_id: str, session: AsyncSession = Depends(g
     return out
 
 
-@router.get("/{ap_id}")
+@router.get("/{ap_id}", dependencies=[Depends(require_permission("connection:self"))])
 async def my_connection_status(project_id: str, ap_id: str, session: AsyncSession = Depends(get_session),
                                tenant_id: str = Depends(current_tenant_id), user: CurrentUser = Depends(get_current_user)):
     ap = await _load_per_user(session, tenant_id, ap_id, user)
     return await AuthProviderService.get_user_connection(tenant_id, project_id, ap, user.id)
 
 
-@router.put("/{ap_id}", status_code=204)
+@router.put("/{ap_id}", status_code=204, dependencies=[Depends(require_permission("connection:self"))])
 async def set_my_connection(project_id: str, ap_id: str, body: UserConnectionIn, session: AsyncSession = Depends(get_session),
                             tenant_id: str = Depends(current_tenant_id), user: CurrentUser = Depends(get_current_user)):
     ap = await _load_per_user(session, tenant_id, ap_id, user)
@@ -82,7 +83,7 @@ async def set_my_connection(project_id: str, ap_id: str, body: UserConnectionIn,
     await AuthProviderService.set_user_connection(session, tenant_id, project_id, ap, user.id, bundle=bundle)
 
 
-@router.delete("/{ap_id}", status_code=204)
+@router.delete("/{ap_id}", status_code=204, dependencies=[Depends(require_permission("connection:self"))])
 async def clear_my_connection(project_id: str, ap_id: str, session: AsyncSession = Depends(get_session),
                               tenant_id: str = Depends(current_tenant_id), user: CurrentUser = Depends(get_current_user)):
     ap = await _load_per_user(session, tenant_id, ap_id, user)

@@ -38,11 +38,12 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
+from ros.authz import public_endpoint
 from ros.config import settings
 from ros.db.base import SessionLocal
 from ros.deps import run_context as parse_run_context
@@ -436,13 +437,13 @@ async def _run_streamable(request: Request, proj: Project, server) -> _ASGIRespo
 # --- routes -----------------------------------------------------------------------------------
 
 
-@router.api_route("/{project_id}", methods=["GET", "POST", "DELETE"])
+@router.api_route("/{project_id}", methods=["GET", "POST", "DELETE"], dependencies=[Depends(public_endpoint)])
 async def mcp_rpc(project_id: str, request: Request):
     """Base MCP endpoint: the project's published toolset surface (see module docstring)."""
     return await _handle(project_id, request, toolset_slug=None)
 
 
-@router.api_route("/{project_id}/toolset/{slug}", methods=["GET", "POST", "DELETE"])
+@router.api_route("/{project_id}/toolset/{slug}", methods=["GET", "POST", "DELETE"], dependencies=[Depends(public_endpoint)])
 async def mcp_rpc_toolset(project_id: str, slug: str, request: Request):
     """Scoped MCP endpoint: exposes only the tools in tool set `slug` (GitHub-style toolset)."""
     return await _handle(project_id, request, toolset_slug=slug)

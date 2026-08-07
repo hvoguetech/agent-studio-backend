@@ -13,6 +13,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from ros.authz import public_endpoint
 from ros.db.base import SessionLocal
 from ros.deps import get_run_service
 from ros.secrets.store import SecretStore
@@ -146,7 +147,7 @@ async def _verify_signature(trigger, request: Request, body: bytes) -> bool:
     return False
 
 
-@router.post("/{key}")
+@router.post("/{key}", dependencies=[Depends(public_endpoint)])
 async def inbound_webhook(
     key: str,
     request: Request,

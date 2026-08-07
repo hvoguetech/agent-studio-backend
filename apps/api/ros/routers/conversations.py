@@ -11,6 +11,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import require_permission
 from ros.deps import current_tenant_id, get_session, require_role
 from ros.schemas.dto import ConversationDetailOut, ConversationOut, FacetsOut, TurnOut
 from ros.services.conversations import ConversationService, summarize
@@ -26,7 +27,7 @@ def _turn(t) -> TurnOut:
     )
 
 
-@router.get("", response_model=list[ConversationOut])
+@router.get("", response_model=list[ConversationOut], dependencies=[Depends(require_permission("conversation:read"))])
 async def list_conversations(
     project_id: str,
     actor: str | None = Query(None, description="Filter by user name (e.g. 'System', 'Unknown user')"),
@@ -45,7 +46,7 @@ async def list_conversations(
     return [ConversationOut.model_validate(c) for c in convos]
 
 
-@router.get("/facets", response_model=FacetsOut)
+@router.get("/facets", response_model=FacetsOut, dependencies=[Depends(require_permission("conversation:read"))])
 async def conversation_facets(
     project_id: str,
     session: AsyncSession = Depends(get_session),
@@ -54,7 +55,7 @@ async def conversation_facets(
     return await ConversationService.facets(session, tenant_id, project_id)
 
 
-@router.post("/purge")
+@router.post("/purge", dependencies=[Depends(require_permission("conversation:write"))])
 async def purge_conversations(
     project_id: str,
     older_than_days: int = Query(..., ge=0, description="Delete traces + spans older than this many days"),
@@ -67,7 +68,7 @@ async def purge_conversations(
     return {"removed": removed}
 
 
-@router.get("/{thread_id}", response_model=ConversationDetailOut)
+@router.get("/{thread_id}", response_model=ConversationDetailOut, dependencies=[Depends(require_permission("conversation:read"))])
 async def get_conversation(
     project_id: str,
     thread_id: str,

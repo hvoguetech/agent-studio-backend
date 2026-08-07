@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import require_permission
 from ros.deps import CurrentUser, current_tenant_id, get_session, require_role
 from ros.schemas.contracts import validate_against_id
 from ros.schemas.dto import (
@@ -20,12 +21,12 @@ from ros.services.versions import safe_snapshot
 router = APIRouter(prefix="/v1/projects/{project_id}/auth-providers", tags=["auth-providers"])
 
 
-@router.get("", response_model=list[AuthProviderOut])
+@router.get("", response_model=list[AuthProviderOut], dependencies=[Depends(require_permission("auth_provider:read"))])
 async def list_aps(project_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     return await AuthProviderService.list(session, tenant_id, project_id)
 
 
-@router.post("", response_model=AuthProviderOut, status_code=201)
+@router.post("", response_model=AuthProviderOut, status_code=201, dependencies=[Depends(require_permission("auth_provider:write"))])
 async def create_ap(project_id: str, body: AuthProviderCreate, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id),
                     user: CurrentUser = Depends(require_role("editor"))):
     cfg = {**body.config, "name": body.name, "kind": body.kind}
@@ -39,7 +40,7 @@ async def create_ap(project_id: str, body: AuthProviderCreate, session: AsyncSes
     return ap
 
 
-@router.get("/{ap_id}", response_model=AuthProviderOut)
+@router.get("/{ap_id}", response_model=AuthProviderOut, dependencies=[Depends(require_permission("auth_provider:read"))])
 async def get_ap(project_id: str, ap_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     ap = await AuthProviderService.get(session, tenant_id, ap_id)
     if ap is None:
@@ -47,7 +48,7 @@ async def get_ap(project_id: str, ap_id: str, session: AsyncSession = Depends(ge
     return ap
 
 
-@router.patch("/{ap_id}", response_model=AuthProviderOut)
+@router.patch("/{ap_id}", response_model=AuthProviderOut, dependencies=[Depends(require_permission("auth_provider:write"))])
 async def update_ap(project_id: str, ap_id: str, body: AuthProviderUpdate, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id),
                     user: CurrentUser = Depends(require_role("editor"))):
     ap = await AuthProviderService.get(session, tenant_id, ap_id)
@@ -65,7 +66,7 @@ async def update_ap(project_id: str, ap_id: str, body: AuthProviderUpdate, sessi
     return ap
 
 
-@router.delete("/{ap_id}", status_code=204)
+@router.delete("/{ap_id}", status_code=204, dependencies=[Depends(require_permission("auth_provider:write"))])
 async def delete_ap(project_id: str, ap_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id),
                     _: CurrentUser = Depends(require_role("editor"))):
     ap = await AuthProviderService.get(session, tenant_id, ap_id)
@@ -74,7 +75,7 @@ async def delete_ap(project_id: str, ap_id: str, session: AsyncSession = Depends
     await AuthProviderService.delete(session, ap)
 
 
-@router.post("/{ap_id}/test")
+@router.post("/{ap_id}/test", dependencies=[Depends(require_permission("auth_provider:write"))])
 async def test_ap(project_id: str, ap_id: str, body: AuthTestIn, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id),
                   user: CurrentUser = Depends(require_role("editor"))):
     ap = await AuthProviderService.get(session, tenant_id, ap_id)
@@ -88,7 +89,7 @@ async def test_ap(project_id: str, ap_id: str, body: AuthTestIn, session: AsyncS
 
 # --- Per-user connected credentials: the app owner's connect flow stores each end user's downstream
 # credential here (server-to-server, editor+), and the AuthResolver uses it to act as that user. ---
-@router.put("/{ap_id}/connections/{end_user_id}", status_code=204)
+@router.put("/{ap_id}/connections/{end_user_id}", status_code=204, dependencies=[Depends(require_permission("auth_provider:write"))])
 async def set_user_connection(project_id: str, ap_id: str, end_user_id: str, body: UserConnectionIn,
                               session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id),
                               _: CurrentUser = Depends(require_role("editor"))):
@@ -103,7 +104,7 @@ async def set_user_connection(project_id: str, ap_id: str, end_user_id: str, bod
     await AuthProviderService.set_user_connection(session, tenant_id, project_id, ap, end_user_id, bundle=bundle)
 
 
-@router.get("/{ap_id}/connections/{end_user_id}")
+@router.get("/{ap_id}/connections/{end_user_id}", dependencies=[Depends(require_permission("auth_provider:read"))])
 async def get_user_connection(project_id: str, ap_id: str, end_user_id: str,
                               session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     ap = await AuthProviderService.get(session, tenant_id, ap_id)
@@ -112,7 +113,7 @@ async def get_user_connection(project_id: str, ap_id: str, end_user_id: str,
     return await AuthProviderService.get_user_connection(tenant_id, project_id, ap, end_user_id)
 
 
-@router.delete("/{ap_id}/connections/{end_user_id}", status_code=204)
+@router.delete("/{ap_id}/connections/{end_user_id}", status_code=204, dependencies=[Depends(require_permission("auth_provider:write"))])
 async def delete_user_connection(project_id: str, ap_id: str, end_user_id: str,
                                  session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id),
                                  _: CurrentUser = Depends(require_role("editor"))):

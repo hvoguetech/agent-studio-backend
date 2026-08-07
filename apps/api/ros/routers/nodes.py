@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 import ros.nodes  # noqa: F401  (ensure registration)
+from ros.authz import require_permission
 from ros.engine.registry import all_specs
 from ros.schemas.dto import NodeTypeOut, PortOut
 
@@ -21,7 +22,7 @@ def _ports(ports) -> list[PortOut]:
     ]
 
 
-@router.get("", response_model=list[NodeTypeOut])
+@router.get("", response_model=list[NodeTypeOut], dependencies=[Depends(require_permission("node:read"))])
 async def list_node_types() -> list[NodeTypeOut]:
     return [
         NodeTypeOut(

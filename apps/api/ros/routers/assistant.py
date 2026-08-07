@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
+from ros.authz import require_permission
 from ros.deps import current_tenant_id, get_checkpointer, get_session
 from ros.services.assistant import AssistantService
 from ros.services.projects import ProjectService
@@ -40,7 +41,7 @@ class AssistantResumeIn(BaseModel):
     decision: str = "approve"  # approve | reject
 
 
-@router.post("/stream")
+@router.post("/stream", dependencies=[Depends(require_permission("assistant:write"))])
 async def assistant_stream(
     project_id: str,
     body: AssistantIn,
@@ -68,7 +69,7 @@ async def assistant_stream(
     return EventSourceResponse(event_gen(), headers=SSE_HEADERS)
 
 
-@router.post("/resume")
+@router.post("/resume", dependencies=[Depends(require_permission("assistant:write"))])
 async def assistant_resume(
     project_id: str,
     body: AssistantResumeIn,

@@ -13,13 +13,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import require_permission
 from ros.deps import CurrentUser, current_tenant_id, get_session, require_role
 from ros.services.audit import AuditService
 
 router = APIRouter(prefix="/v1/audit", tags=["audit"])
 
 
-@router.get("/metrics")
+@router.get("/metrics", dependencies=[Depends(require_permission("audit:read"))])
 async def metrics(_: CurrentUser = Depends(require_role("admin"))):
     """In-process resilience counters (swallowed-failure visibility)."""
     from ros.util.metrics import snapshot
@@ -35,7 +36,7 @@ def _row(r) -> dict:
     }
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_permission("audit:read"))])
 async def list_audit(
     response: Response,
     project_id: str | None = None,
@@ -64,7 +65,7 @@ async def list_audit(
     return [_row(r) for r in rows]
 
 
-@router.get("/export")
+@router.get("/export", dependencies=[Depends(require_permission("audit:read"))])
 async def export_audit(
     project_id: str | None = None,
     action: str | None = None,

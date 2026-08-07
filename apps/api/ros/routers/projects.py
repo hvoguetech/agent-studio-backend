@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import require_permission
 from ros.deps import CurrentUser, client_ip, current_tenant_id, get_session, require_role
 from ros.schemas.dto import ProjectCountsOut, ProjectCreate, ProjectOut, ProjectUpdate
 from ros.services.audit import AuditService
@@ -19,14 +20,14 @@ class ProjectMemberIn(BaseModel):
     role: str  # owner|admin|editor|viewer - the caller's per-project role for {user_id}
 
 
-@router.get("", response_model=list[ProjectOut])
+@router.get("", response_model=list[ProjectOut], dependencies=[Depends(require_permission("project:read"))])
 async def list_projects(
     session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)
 ):
     return await ProjectService.list(session, tenant_id)
 
 
-@router.post("", response_model=ProjectOut, status_code=201)
+@router.post("", response_model=ProjectOut, status_code=201, dependencies=[Depends(require_permission("project:write"))])
 async def create_project(
     body: ProjectCreate,
     session: AsyncSession = Depends(get_session),
@@ -41,7 +42,7 @@ async def create_project(
     return project
 
 
-@router.get("/{project_id}", response_model=ProjectOut)
+@router.get("/{project_id}", response_model=ProjectOut, dependencies=[Depends(require_permission("project:read"))])
 async def get_project(
     project_id: str,
     session: AsyncSession = Depends(get_session),
@@ -53,7 +54,7 @@ async def get_project(
     return project
 
 
-@router.get("/{project_id}/counts", response_model=ProjectCountsOut)
+@router.get("/{project_id}/counts", response_model=ProjectCountsOut, dependencies=[Depends(require_permission("project:read"))])
 async def project_counts(
     project_id: str,
     session: AsyncSession = Depends(get_session),
@@ -64,7 +65,7 @@ async def project_counts(
     return await ProjectService.counts(session, tenant_id, project_id)
 
 
-@router.patch("/{project_id}", response_model=ProjectOut)
+@router.patch("/{project_id}", response_model=ProjectOut, dependencies=[Depends(require_permission("project:write"))])
 async def update_project(
     project_id: str,
     body: ProjectUpdate,
@@ -80,7 +81,7 @@ async def update_project(
     return project
 
 
-@router.delete("/{project_id}", status_code=204)
+@router.delete("/{project_id}", status_code=204, dependencies=[Depends(require_permission("project:write"))])
 async def delete_project(
     project_id: str,
     request: Request,
@@ -95,7 +96,7 @@ async def delete_project(
 
 
 # --- per-project membership / RBAC (finding h) ---
-@router.get("/{project_id}/members")
+@router.get("/{project_id}/members", dependencies=[Depends(require_permission("project:members"))])
 async def list_project_members(
     project_id: str,
     session: AsyncSession = Depends(get_session),
@@ -106,7 +107,7 @@ async def list_project_members(
     return [{"user_id": m.user_id, "role": m.role} for m in members]
 
 
-@router.put("/{project_id}/members/{user_id}")
+@router.put("/{project_id}/members/{user_id}", dependencies=[Depends(require_permission("project:write"))])
 async def set_project_member(
     project_id: str,
     user_id: str,
@@ -132,7 +133,7 @@ async def set_project_member(
     return {"user_id": m.user_id, "role": m.role}
 
 
-@router.delete("/{project_id}/members/{user_id}", status_code=204)
+@router.delete("/{project_id}/members/{user_id}", status_code=204, dependencies=[Depends(require_permission("project:write"))])
 async def remove_project_member(
     project_id: str,
     user_id: str,

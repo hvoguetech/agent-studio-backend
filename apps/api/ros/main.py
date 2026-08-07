@@ -13,7 +13,7 @@ import logging
 import threading
 from contextlib import AsyncExitStack, asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import ros
@@ -243,11 +243,16 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     configure_logging()  # A/C5: install JSON logging when ROS_LOG_JSON is set (no-op otherwise)
+    from ros.authz import audit_route_coverage, default_deny_guard
+
     app = FastAPI(
         title="ROS API",
         version=ros.__version__,
         description="Self-hosted platform for building, testing, and shipping LangChain/LangGraph agents.",
         lifespan=lifespan,
+        # Default-deny backstop (B/E4): every route must declare a permission or be marked
+        # public; an undeclared route fails closed. Enforced structurally, per request.
+        dependencies=[Depends(default_deny_guard)],
     )
     # Host-header allow-list (defense-in-depth against Host-header attacks). Empty => any (dev).
     if settings.trusted_hosts:
@@ -284,6 +289,19 @@ def create_app() -> FastAPI:
         pricing.router, mcp_oauth.router, mcp_server.router, mcp_tokens.router, mcp_clients.router, versions.router,
     ):
         app.include_router(r)
+    # Authorization coverage audit (B/E4): log loudly if any route lacks a permission /
+    # public declaration. These still fail closed at request time via default_deny_guard;
+    # the CI coverage test (tests/test_authz.py) turns this into a hard failure.
+    undeclared = audit_route_coverage(app)
+    if undeclared:
+        log = logging.getLogger("ros.authz")
+        for methods, path, name in undeclared:
+            log.error(
+                "ROUTE MISSING AUTHZ DECLARATION (fails closed): %s %s [%s]",
+                ",".join(methods) or "?",
+                path,
+                name,
+            )
     return app
 
 

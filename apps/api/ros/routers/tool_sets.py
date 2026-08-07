@@ -9,6 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import require_permission
 from ros.deps import CurrentUser, current_tenant_id, get_session, require_role
 from ros.models import ToolSet
 from ros.schemas.dto import ToolSetCreate, ToolSetOut, ToolSetUpdate
@@ -31,14 +32,14 @@ async def _load(session: AsyncSession, tenant_id: str, project_id: str, set_id: 
     return ts
 
 
-@router.get("", response_model=list[ToolSetOut])
+@router.get("", response_model=list[ToolSetOut], dependencies=[Depends(require_permission("tool_set:read"))])
 async def list_tool_sets(project_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     sets = await ToolSetService.list(session, tenant_id, project_id)
     members = await ToolSetService.members_map(session, tenant_id, project_id)
     return [_to_out(s, members.get(s.id, [])) for s in sets]
 
 
-@router.post("", response_model=ToolSetOut, status_code=201)
+@router.post("", response_model=ToolSetOut, status_code=201, dependencies=[Depends(require_permission("tool_set:write"))])
 async def create_tool_set(project_id: str, body: ToolSetCreate, session: AsyncSession = Depends(get_session),
                           tenant_id: str = Depends(current_tenant_id), _: CurrentUser = Depends(require_role("editor"))):
     ts = await ToolSetService.create(
@@ -48,13 +49,13 @@ async def create_tool_set(project_id: str, body: ToolSetCreate, session: AsyncSe
     return _to_out(ts, await ToolSetService.member_ids(session, tenant_id, ts.id))
 
 
-@router.get("/{set_id}", response_model=ToolSetOut)
+@router.get("/{set_id}", response_model=ToolSetOut, dependencies=[Depends(require_permission("tool_set:read"))])
 async def get_tool_set(project_id: str, set_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     ts = await _load(session, tenant_id, project_id, set_id)
     return _to_out(ts, await ToolSetService.member_ids(session, tenant_id, ts.id))
 
 
-@router.patch("/{set_id}", response_model=ToolSetOut)
+@router.patch("/{set_id}", response_model=ToolSetOut, dependencies=[Depends(require_permission("tool_set:write"))])
 async def update_tool_set(project_id: str, set_id: str, body: ToolSetUpdate, session: AsyncSession = Depends(get_session),
                           tenant_id: str = Depends(current_tenant_id), _: CurrentUser = Depends(require_role("editor"))):
     ts = await _load(session, tenant_id, project_id, set_id)
@@ -65,21 +66,21 @@ async def update_tool_set(project_id: str, set_id: str, body: ToolSetUpdate, ses
     return _to_out(ts, await ToolSetService.member_ids(session, tenant_id, ts.id))
 
 
-@router.delete("/{set_id}", status_code=204)
+@router.delete("/{set_id}", status_code=204, dependencies=[Depends(require_permission("tool_set:write"))])
 async def delete_tool_set(project_id: str, set_id: str, session: AsyncSession = Depends(get_session),
                           tenant_id: str = Depends(current_tenant_id), _: CurrentUser = Depends(require_role("editor"))):
     ts = await _load(session, tenant_id, project_id, set_id)
     await ToolSetService.delete(session, ts)
 
 
-@router.post("/{set_id}/tools/{tool_id}", status_code=204)
+@router.post("/{set_id}/tools/{tool_id}", status_code=204, dependencies=[Depends(require_permission("tool_set:write"))])
 async def add_tool_to_set(project_id: str, set_id: str, tool_id: str, session: AsyncSession = Depends(get_session),
                           tenant_id: str = Depends(current_tenant_id), _: CurrentUser = Depends(require_role("editor"))):
     ts = await _load(session, tenant_id, project_id, set_id)
     await ToolSetService.add_member(session, ts, tool_id)
 
 
-@router.delete("/{set_id}/tools/{tool_id}", status_code=204)
+@router.delete("/{set_id}/tools/{tool_id}", status_code=204, dependencies=[Depends(require_permission("tool_set:write"))])
 async def remove_tool_from_set(project_id: str, set_id: str, tool_id: str, session: AsyncSession = Depends(get_session),
                                tenant_id: str = Depends(current_tenant_id), _: CurrentUser = Depends(require_role("editor"))):
     ts = await _load(session, tenant_id, project_id, set_id)

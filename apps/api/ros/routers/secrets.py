@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ros.authz import require_permission
 from ros.deps import CurrentUser, current_tenant_id, get_session, require_role
 from ros.schemas.dto import SecretCreate, SecretOut
 from ros.services.secrets import SecretService
@@ -12,24 +13,24 @@ from ros.services.secrets import SecretService
 router = APIRouter(prefix="/v1/projects/{project_id}/secrets", tags=["secrets"])
 
 
-@router.get("", response_model=list[SecretOut])
+@router.get("", response_model=list[SecretOut], dependencies=[Depends(require_permission("secret:read"))])
 async def list_secrets(project_id: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     return await SecretService.list(session, tenant_id, project_id)
 
 
-@router.post("", response_model=SecretOut, status_code=201)
+@router.post("", response_model=SecretOut, status_code=201, dependencies=[Depends(require_permission("secret:write"))])
 async def create_secret(project_id: str, body: SecretCreate, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id),
                         _: CurrentUser = Depends(require_role("admin"))):
     return await SecretService.write(session, tenant_id, project_id, name=body.name, value=body.value, kind=body.kind)
 
 
-@router.get("/{name}/usage")
+@router.get("/{name}/usage", dependencies=[Depends(require_permission("secret:read"))])
 async def secret_usage(project_id: str, name: str, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id)):
     refs = await SecretService.usage(session, tenant_id, project_id, name=name)
     return {"count": len(refs), "references": refs}
 
 
-@router.delete("/{name}", status_code=204)
+@router.delete("/{name}", status_code=204, dependencies=[Depends(require_permission("secret:write"))])
 async def delete_secret(project_id: str, name: str, force: bool = False, session: AsyncSession = Depends(get_session), tenant_id: str = Depends(current_tenant_id),
                         _: CurrentUser = Depends(require_role("admin"))):
     if not force:

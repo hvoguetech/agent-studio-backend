@@ -7,9 +7,10 @@ the single source of truth: the frontend hardcodes no model lists.
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from ros.authz import require_permission
 from ros.model_catalog import CHAT_MODELS, EMBEDDING_MODELS, RERANKER_MODELS
 
 router = APIRouter(prefix="/v1/models", tags=["catalog"])
@@ -46,7 +47,7 @@ class ModelCatalogOut(BaseModel):
     reranker: list[RerankerModelOut]
 
 
-@router.get("", response_model=ModelCatalogOut)
+@router.get("", response_model=ModelCatalogOut, dependencies=[Depends(require_permission("model:read"))])
 async def list_models() -> ModelCatalogOut:
     return ModelCatalogOut(
         chat=[

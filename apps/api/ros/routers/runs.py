@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
+from ros.authz import require_permission
 from ros.config import settings
 from ros.deps import (
     CurrentUser,
@@ -31,7 +32,7 @@ SSE_HEADERS = {
 }
 
 
-@router.post("", response_model=RunOut, status_code=201)
+@router.post("", response_model=RunOut, status_code=201, dependencies=[Depends(require_permission("run:execute"))])
 async def create_run(
     project_id: str,
     workflow_id: str,
@@ -93,7 +94,7 @@ async def create_run(
     return out
 
 
-@router.get("/{run_id}/stream")
+@router.get("/{run_id}/stream", dependencies=[Depends(require_permission("run:read"))])
 async def stream_run(
     project_id: str,
     workflow_id: str,
@@ -117,7 +118,7 @@ async def stream_run(
     return EventSourceResponse(event_gen(), headers=SSE_HEADERS)
 
 
-@router.post("/{run_id}/rerun", response_model=RunOut, status_code=201)
+@router.post("/{run_id}/rerun", response_model=RunOut, status_code=201, dependencies=[Depends(require_permission("run:execute"))])
 async def rerun(
     project_id: str,
     workflow_id: str,
@@ -146,7 +147,7 @@ async def rerun(
     return RunOut(id=run.id, status=run.status, thread_id=run.thread_id)
 
 
-@router.post("/{run_id}/resume")
+@router.post("/{run_id}/resume", dependencies=[Depends(require_permission("run:execute"))])
 async def resume_run(
     project_id: str,
     workflow_id: str,
@@ -159,7 +160,7 @@ async def resume_run(
     return await run_service.resume(run_id=run_id, tenant_id=tenant_id, value=body.value, project_id=project_id, run_context=rc)
 
 
-@router.post("/{run_id}/retry")
+@router.post("/{run_id}/retry", dependencies=[Depends(require_permission("run:execute"))])
 async def retry_run(
     project_id: str,
     workflow_id: str,
@@ -201,7 +202,7 @@ async def retry_run(
     return result
 
 
-@router.post("/{run_id}/cancel")
+@router.post("/{run_id}/cancel", dependencies=[Depends(require_permission("run:execute"))])
 async def cancel_run(
     project_id: str,
     workflow_id: str,
