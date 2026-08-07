@@ -42,3 +42,6 @@ Thumbs.db
 
 # --- Local architecture notes (not part of the product) ---
 /PENDING_FEATURES.md
+
+# local dev virtualenv (see B/E4 authz test setup)
+.venv312/
