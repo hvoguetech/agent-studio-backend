@@ -96,6 +96,13 @@ railway volume add --service api --mount-path /app/.data   # REQUIRED: master.ke
 The build is driven by the repo's `railway.json` (Dockerfile `apps/api/Dockerfile`, start command,
 healthcheck `/readyz`) — no build config needed in the dashboard.
 
+> **⚠️ Pin `PORT=8000` on the api service.** Railway injects `PORT=8080` by default, so the api
+> (`uvicorn --port ${PORT:-8000}`) listens on **8080** — but the web proxies to
+> `api.railway.internal:8000` (below). That mismatch means the console silently can't reach the
+> api (every call refused; only Railway's own `/readyz` gets through). Set `PORT=8000` on `api` so
+> both sides agree, or set the web's `ROS_API_URL` to the api's actual port. Verify with
+> `railway logs --service api | grep "Uvicorn running"` → must show `:8000`.
+
 ### 3a. api environment variables
 
 Set with `railway variables --service api --set 'KEY=value'` (repeatable). Use Railway
@@ -105,6 +112,7 @@ Set with `railway variables --service api --set 'KEY=value'` (repeatable). Use R
 
 | Variable | Value | Notes |
 |---|---|---|
+| `PORT` | `8000` | pin it — Railway defaults to 8080, breaking the web→api proxy (see ⚠️ above) |
 | `ROS_DATABASE_URL` | `postgresql+asyncpg://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/${{Postgres.PGDATABASE}}` | **must be the `+asyncpg` driver** (SQLAlchemy async) |
 | `ROS_CHECKPOINT_BACKEND` | `postgres` | LangGraph checkpointer; falls back to `ROS_DATABASE_URL` |
 | `ROS_REDIS_URL` | `redis://default:${{Redis.REDIS_PASSWORD}}@${{Redis.RAILWAY_PRIVATE_DOMAIN}}:6379` | shared rate-limit / idempotency / token-revocation |
@@ -133,6 +141,7 @@ Example:
 
 ```bash
 railway variables --service api \
+  --set 'PORT=8000' \
   --set 'ROS_DATABASE_URL=postgresql+asyncpg://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/${{Postgres.PGDATABASE}}' \
   --set 'ROS_CHECKPOINT_BACKEND=postgres' \
   --set 'ROS_REDIS_URL=redis://default:${{Redis.REDIS_PASSWORD}}@${{Redis.RAILWAY_PRIVATE_DOMAIN}}:6379' \
