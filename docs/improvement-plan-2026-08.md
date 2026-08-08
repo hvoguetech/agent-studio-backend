@@ -67,6 +67,9 @@ whether code tools can ever be enabled for untrusted tenants**.
 
 ### 5a. Execution sandboxing — isolated code executor
 
+> **Architecture:** [`docs/design/code-execution-sandbox.md`](design/code-execution-sandbox.md)
+> (CodeExecutor seam + restricted/subprocess/container tiers + rollout).
+
 **Current state (verified in `ros/tools/code.py`):** code tools run under **RestrictedPython**
 (AST-level — blocks dunder/`eval`/`exec`/`import` escapes, guarded builtins). Same engine gates
 router/`expressions.py` value decisions. It is a **hardening layer, NOT an OS sandbox**:
