@@ -29,6 +29,12 @@ _DEFAULT_DATA_DIR = API_ROOT / ".data"
 # Minimum length for a non-empty ROS_SERVICE_API_TOKEN (enforced by the production guard).
 _MIN_SERVICE_TOKEN_LEN = 24
 
+# Code executors that provide real OS/VM isolation (bound CPU/mem, can kill a runaway), so
+# enabling code tools in production with one does NOT require the unsandboxed acknowledgement.
+# The in-process "restricted" tier is deliberately absent. Plugins are treated as non-isolating
+# (conservative) unless added here.
+_ISOLATING_CODE_EXECUTORS = {"freestyle"}
+
 
 def _as_str_list(v: object) -> list[str]:
     """Parse a list-of-strings setting from env leniently: a JSON array (["a","b"]), a
@@ -233,8 +239,21 @@ class Settings(BaseSettings):
     # in. The production guard refuses to boot with this on unless explicitly acknowledged.
     enable_code_tools: bool = False
     # Set true to run code tools in production despite the lack of OS isolation (you accept
-    # the in-process RCE/DoS risk - e.g. a trusted single-tenant deployment).
+    # the in-process RCE/DoS risk - e.g. a trusted single-tenant deployment). NOT required when
+    # an ISOLATING executor is selected (see code_executor) - that provides the real bound.
     allow_unsandboxed_code_tools: bool = False
+    # Code-tool execution backend (WS5 5a - docs/design/code-execution-sandbox.md):
+    #   "restricted" (default) - in-process RestrictedPython; NOT OS-isolated (no CPU/mem bound).
+    #   "freestyle"             - remote Freestyle sandbox (isolated; bounds CPU/mem, kills runaways).
+    #   <other>                 - a `ros.code_executors` entry-point plugin (lazy-imported).
+    code_executor: str = "restricted"
+    code_tool_timeout_seconds: float = 5.0
+    code_tool_max_result_chars: int = 100_000
+    # Freestyle sandbox (code_executor="freestyle"). Key from dash.freestyle.sh. base_url/run_path
+    # are configurable so the exact API can be pinned per account/plan without a code change.
+    freestyle_api_key: str | None = None
+    freestyle_base_url: str = "https://api.freestyle.sh"
+    freestyle_run_path: str = "/execute/v1/run"
     # External MCP servers reached via the `stdio` transport launch a LOCAL PROCESS
     # (command + args) - i.e. arbitrary command execution on the API host, like an
     # unsandboxed code tool. OFF by default; enable only on a trusted single-tenant install.
@@ -511,10 +530,18 @@ class Settings(BaseSettings):
                 "ROS_CHECKPOINT_BACKEND must be 'postgres' outside dev - a sqlite/memory "
                 "checkpointer loses run/HITL state on restart and can't be shared across workers."
             )
-        if self.enable_code_tools and not self.allow_unsandboxed_code_tools:
+        # Code tools need real isolation in prod. An ISOLATING executor (freestyle/plugin)
+        # provides it; the in-process "restricted" tier does not, so it still requires the
+        # explicit unsandboxed acknowledgement.
+        if (
+            self.enable_code_tools
+            and self.code_executor.strip().lower() not in _ISOLATING_CODE_EXECUTORS
+            and not self.allow_unsandboxed_code_tools
+        ):
             problems.append(
-                "ROS_ENABLE_CODE_TOOLS is on but code execution is not OS-isolated. Disable it, "
-                "or set ROS_ALLOW_UNSANDBOXED_CODE_TOOLS=true to explicitly accept the RCE/DoS risk."
+                "ROS_ENABLE_CODE_TOOLS is on with the non-isolated 'restricted' executor. Select an "
+                "isolating ROS_CODE_EXECUTOR (e.g. 'freestyle'), disable code tools, or set "
+                "ROS_ALLOW_UNSANDBOXED_CODE_TOOLS=true to explicitly accept the in-process RCE/DoS risk."
             )
         # A Host-header allow-list must be set outside dev (empty => TrustedHostMiddleware is
         # not even added, so Host/absolute-URI spoofing is unmitigated - audit S6/host attacks).
