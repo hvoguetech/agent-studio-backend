@@ -196,6 +196,21 @@ Selected by `ROS_EXECUTION_BACKEND` (`local` default; a plugin resolves via the
 - Legal note: self-hosted Inngest server is **SSPL** — confirm with counsel for a managed offering
   (see [[forge-execution-architecture]] open flag).
 
+### 6.5 Checkpoint retention (TTL cleanup)
+
+The Postgres checkpointer persists a checkpoint per superstep, but `RetentionService.purge_expired`
+only ages out traces/spans/runs — **checkpoints are cleaned only on project/workspace delete**, so
+they **grow unbounded** for the life of a project (cost + bloats the DB the run hot-path writes to).
+This is the Postgres equivalent of DynamoDB-TTL checkpoint expiry.
+
+- ☐ Extend the retention sweep to delete checkpoints for **fully-expired threads** — a thread whose
+  runs are ALL terminal (done/error/canceled) *and* whose newest run is past the retention horizon.
+  Never delete a thread with a live/resumable run (queued/running/interrupted), and never a partial
+  conversation thread that still has runs after the cutoff. Uses the same `checkpointer.adelete_thread(lg_thread_id)`
+  path as project delete; leader-gated + idempotent like the rest of the sweep.
+- Related (later): optional checkpoint→S3 offload for genuinely-large *state* (WS7 handles large
+  *artifacts* via refs-in-state). gzip isn't needed — Postgres TOAST already compresses large values.
+
 ---
 
 ## Sequencing & checkpoints
