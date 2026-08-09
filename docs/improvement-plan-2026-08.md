@@ -120,6 +120,82 @@ endpoint but **no cryptographic tamper-evidence**.
   SIEM (Datadog/Splunk/S3), and read-auditing. Effort: M. *(same as WS4 #15 — consolidate there
   or here.)*
 
+## WS6 — Scale-out (concurrent workflows)
+
+Run hundreds+ of concurrent workflow runs. The engine is built around a pluggable
+`ExecutionBackend`; this WS is about operating the **default Redis/arq backend** at scale and
+keeping the **Inngest** durable backend as a documented option.
+
+### 6.0 Execution-granularity decision (locked)
+
+**Work unit = the whole run, not the node.** A worker job runs `run_to_completion(run_id)` —
+the entire graph in one process, node→node hops in memory; the Postgres checkpointer persists
+each superstep for durability/resume. Only `code` nodes leave the process (→ Freestyle, WS5 5a).
+
+We deliberately do **NOT** distribute at the node level by default. Node-level durable-step
+distribution (Inngest/Temporal-style) adds ~tens–hundreds of ms **per hop** (enqueue + state
+load/save + worker pickup) — fine for long/durable workflows, but it dominates latency on tight
+agent loops and cheap nodes (routers/transforms) where there's no LLM call to hide behind.
+In-process hops are ~µs. So: **run-level distribution for throughput + inline for interactive
+latency; node-level is opt-in per workflow class only** (see 6.4).
+
+### 6.1 Topology — two stateless tiers + a queue
+
+- **api** replicas: HTTP + interactive/SSE runs (execute **inline**; a stream is pinned to its
+  replica). Scale on CPU / active SSE connections.
+- **worker** replicas: consume `run_job` from Redis, whole-run-per-worker, `arq max_jobs`
+  concurrent (I/O-bound → set ~15–30). Scale on **Redis queue depth**.
+- Throughput ≈ `worker_replicas × max_jobs` (offloaded) + `api_replicas × per-proc cap`
+  (interactive). Both tiers stateless → scale = add replicas.
+
+- ☐ **Deploy the `worker` service** (`arq ros.worker.WorkerSettings`; `workers`+`postgres`
+  extras; `ROS_REDIS_URL`; `PORT` n/a). **Also fixes a live bug:** with Redis set but no worker,
+  trigger/webhook/schedule runs are enqueued to Redis and **never executed** (they stall).
+- ☐ Autoscale: workers on queue depth, api on CPU/SSE count.
+
+### 6.2 Multi-replica prerequisites
+
+Done: Postgres checkpointer ✅ · Redis shared state ✅ · `ROS_SECRET_KEY` ✅ · singleton
+leader-election for scheduler/reaper/retention ✅.
+- ☐ **`chroma → pgvector`** — HARD blocker: chroma is single-writer on a volume; 2+ replicas
+  touching knowledge corrupt/diverge. `ROS_VECTOR_BACKEND=pgvector` + `CREATE EXTENSION vector`
+  (+ re-embed existing knowledge). Do this before scaling api/worker past 1.
+
+### 6.3 Ceilings & fixes (in the order they bite)
+
+1. ☐ **Postgres connections** (first wall): replicas × pool can exhaust `max_connections` →
+   add **PgBouncer** (transaction pooling); size `db_pool_size`/overflow deliberately.
+2. ☐ **Checkpointer write QPS** (a write per superstep): keep `run_durability=async`; scale
+   Postgres; later split the checkpointer onto its own DB.
+3. ☐ **LLM provider rate limits + cost** (true external ceiling): provider quota / multiple
+   keys; lean on the existing budget + quota admission + `max_concurrent_runs_per_tenant`.
+4. ☐ **Fairness:** arq is a single FIFO queue → one tenant's burst can head-of-line-block others.
+   Per-tenant caps/quotas already exist; add **per-tenant queues / priority** if it bites.
+
+### 6.4 Backend option — Redis/arq vs Inngest (keep both)
+
+Selected by `ROS_EXECUTION_BACKEND` (`local` default; a plugin resolves via the
+`ros.execution_backends` entry-point). Callers are unchanged either way.
+
+| | **`local` (Redis/arq)** — this repo, MIT | **`inngest`** — cloud edition (separate private plugin, EPIC D/#36) |
+|---|---|---|
+| Work unit | whole run per worker (in-proc hops) | durable steps (can distribute/retry per step) |
+| Latency | **lowest** (µs inter-node) | higher per step (queue+state per hop) |
+| Durability | checkpointer (superstep resume) | native per-step durability + replay |
+| Retries/backoff | run-level (arq) + dead-letter | per-step, built-in |
+| Long waits / HITL | checkpoint + re-enqueue (slot freed) | native durable sleep/wait |
+| Fan-out / cron | in-proc + singleton scheduler | native fan-out + scheduling |
+| Ops burden | you run workers + Redis | managed (or self-host Inngest, SSPL) |
+| Best for | interactive + hundreds of independent runs | very long/durable workflows, huge fan-out, per-step SLAs |
+
+- ☐ **Default: stay on `local`** (Redis/arq, run-level) — right latency/ops trade for interactive
+  agents and independent-run throughput.
+- ☐ **Keep `inngest` as an opt-in** behind the seam for the workflow classes that need durable
+  steps; the interactive SSE path stays on the inline `local` path regardless (Inngest can't
+  stream tokens). Decision to adopt is per-workflow-class, not global.
+- Legal note: self-hosted Inngest server is **SSPL** — confirm with counsel for a managed offering
+  (see [[forge-execution-architecture]] open flag).
+
 ---
 
 ## Sequencing & checkpoints
@@ -135,6 +211,9 @@ endpoint but **no cryptographic tamper-evidence**.
    tools for untrusted users; **5b (GDPR)** before the first EU/California user; **5c/5d** for
    enterprise/regulated deals. Until then: keep code tools off (default) and note the gaps in any
    security questionnaire.
+6. **WS6** when concurrency climbs (or before enabling triggers): first **deploy the worker
+   service** (also fixes stalled triggered runs) and **chroma→pgvector**, then scale replicas +
+   PgBouncer. Stay on the `local` (Redis/arq) backend; treat Inngest as a later opt-in per §6.4.
 
 Checkpoint after each WS item (don't batch merges); each backend change must keep the full
 `pytest` suite green + `ruff` clean before deploy.
