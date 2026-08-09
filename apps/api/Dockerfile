@@ -27,9 +27,10 @@ WORKDIR /app
 # break plain `docker build`/compose. Docker layer caching still skips this layer unchanged.)
 COPY apps/api/pyproject.toml apps/api/README.md ./
 RUN mkdir -p ros && touch ros/__init__.py
-# Production extras: model providers, vectors, knowledge, MCP, workers (Redis/arq), Postgres.
+# Production extras: model providers, vectors, knowledge, MCP, workers (Redis/arq), Postgres,
+# storage (boto3 for the S3 artifact backend).
 RUN pip install --upgrade pip && \
-    pip install -e ".[providers,vectors,knowledge,mcp,workers,postgres]"
+    pip install -e ".[providers,vectors,knowledge,mcp,workers,postgres,storage]"
 
 # Real source over the stub (this layer changes on every edit, but it is AFTER the install).
 COPY apps/api/ros ./ros

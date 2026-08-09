@@ -106,6 +106,7 @@ def _build_backend() -> ObjectStore:
             region=settings.s3_region,
             access_key_id=settings.s3_access_key_id,
             secret_access_key=settings.s3_secret_access_key,
+            addressing_style=settings.s3_addressing_style,
         )
     raise ObjectStoreError(f"unknown ROS_ARTIFACT_STORE={key!r} (expected 'local' or 's3')")
 

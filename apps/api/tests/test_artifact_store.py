@@ -124,11 +124,19 @@ class _FakeS3:
 
 
 def _install_fake_boto3(monkeypatch):
-    fake = _FakeS3()
     import types
-    mod = types.ModuleType("boto3")
-    mod.client = lambda *a, **k: fake
-    monkeypatch.setitem(sys.modules, "boto3", mod)
+
+    fake = _FakeS3()
+    boto3_mod = types.ModuleType("boto3")
+    boto3_mod.client = lambda *a, **k: fake
+    monkeypatch.setitem(sys.modules, "boto3", boto3_mod)
+    # S3ObjectStore also does `from botocore.config import Config`
+    botocore = types.ModuleType("botocore")
+    config_mod = types.ModuleType("botocore.config")
+    config_mod.Config = lambda **k: None
+    botocore.config = config_mod
+    monkeypatch.setitem(sys.modules, "botocore", botocore)
+    monkeypatch.setitem(sys.modules, "botocore.config", config_mod)
     return fake
 
 

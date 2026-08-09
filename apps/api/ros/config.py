@@ -159,6 +159,9 @@ class Settings(BaseSettings):
     s3_region: str | None = None
     s3_access_key_id: str | None = None
     s3_secret_access_key: str | None = None
+    # S3 addressing style: "auto" (boto3 default; virtual for AWS), "virtual", or "path". Railway
+    # buckets report urlStyle=virtual-host, so set "virtual" for them; MinIO usually wants "path".
+    s3_addressing_style: str = "auto"
 
     # --- Cache / queue (in-process locally; Redis in prod) ---
     redis_url: str | None = None  # None => in-process fakes

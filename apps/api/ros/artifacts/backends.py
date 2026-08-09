@@ -70,14 +70,16 @@ class S3ObjectStore:
 
     name = "s3"
 
-    def __init__(self, *, endpoint_url, region, access_key_id, secret_access_key) -> None:
+    def __init__(
+        self, *, endpoint_url, region, access_key_id, secret_access_key, addressing_style="auto"
+    ) -> None:
         try:
-            import boto3  # noqa: F401
+            import boto3
+            from botocore.config import Config
         except Exception as e:  # noqa: BLE001 - [storage] extra not installed
             raise ObjectStoreError(
                 "ROS_ARTIFACT_STORE=s3 needs boto3 (install the '[storage]' extra)"
             ) from e
-        import boto3
 
         self._client = boto3.client(
             "s3",
@@ -85,6 +87,7 @@ class S3ObjectStore:
             region_name=region or None,
             aws_access_key_id=access_key_id or None,
             aws_secret_access_key=secret_access_key or None,
+            config=Config(s3={"addressing_style": addressing_style or "auto"}),
         )
 
     async def put_bytes(self, bucket: str, key: str, data: bytes, *, content_type: str) -> None:
