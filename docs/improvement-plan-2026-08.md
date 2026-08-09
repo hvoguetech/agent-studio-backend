@@ -203,7 +203,7 @@ only ages out traces/spans/runs — **checkpoints are cleaned only on project/wo
 they **grow unbounded** for the life of a project (cost + bloats the DB the run hot-path writes to).
 This is the Postgres equivalent of DynamoDB-TTL checkpoint expiry.
 
-- ☐ Extend the retention sweep to delete checkpoints for **fully-expired threads** — a thread whose
+- ☑ Extend the retention sweep to delete checkpoints for **fully-expired threads** — a thread whose
   runs are ALL terminal (done/error/canceled) *and* whose newest run is past the retention horizon.
   Never delete a thread with a live/resumable run (queued/running/interrupted), and never a partial
   conversation thread that still has runs after the cutoff. Uses the same `checkpointer.adelete_thread(lg_thread_id)`

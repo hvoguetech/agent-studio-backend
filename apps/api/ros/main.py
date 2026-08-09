@@ -134,7 +134,9 @@ async def _retention_loop(app: FastAPI) -> None:
                 if is_leader:
                     from ros.services.retention import RetentionService
 
-                    await RetentionService.purge_expired()
+                    await RetentionService.purge_expired(
+                        checkpointer=getattr(app.state, "checkpointer", None)
+                    )
         except asyncio.CancelledError:
             break
         except Exception:  # noqa: BLE001 - keep the retention loop alive across failures
