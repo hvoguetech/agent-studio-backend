@@ -53,6 +53,33 @@ async def _dead_letter(ctx, run_id: str, tenant_id: str, project_id: str | None,
         pass
 
 
+async def _start_health_server():
+    """Minimal always-200 HTTP endpoint so Railway's healthcheck (railway.json `/readyz`) passes
+    for this portless worker - arq itself serves no HTTP. Binds the Railway-assigned $PORT and
+    replies 200 to any path. Returns the asyncio server (kept referenced; closed on shutdown)."""
+    import asyncio
+    import os
+
+    port = int(os.environ.get("PORT", "8000"))
+
+    async def _handle(reader, writer):
+        try:
+            await reader.readline()  # consume the request line; enough for a GET healthcheck
+            writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+            await writer.drain()
+        except Exception:  # noqa: BLE001 - health probe; never raise
+            pass
+        finally:
+            try:
+                writer.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+    server = await asyncio.start_server(_handle, "0.0.0.0", port)
+    log.info("worker health server listening on :%s", port)
+    return server
+
+
 async def run_job(ctx, run_id: str, tenant_id: str, project_id: str | None = None) -> dict:
     try:
         return await ctx["run_service"].run_to_completion(
@@ -87,6 +114,7 @@ async def _startup(ctx) -> None:
     for warn in settings.startup_warnings():
         log.warning("INSECURE CONFIG: %s", warn)
 
+    ctx["_health_server"] = await _start_health_server()
     stack = AsyncExitStack()
     ctx["_stack"] = stack
     checkpointer = await _make_checkpointer(stack)
@@ -97,6 +125,9 @@ async def _startup(ctx) -> None:
 async def _shutdown(ctx) -> None:
     # _startup may have failed before setting _stack (e.g. the config guard raised); guard the
     # lookup so on_shutdown never masks the real startup error with a KeyError.
+    health = ctx.get("_health_server")
+    if health is not None:
+        health.close()
     stack = ctx.get("_stack")
     if stack is not None:
         await stack.aclose()
