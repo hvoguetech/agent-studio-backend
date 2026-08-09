@@ -230,6 +230,27 @@ refs-in-state + bytes-in-store; `BucketResolver` seam for enterprise dedicated/B
   egress allowlist for the bucket endpoint.
 - ☐ **Phase 4 — enterprise.** Dedicated/BYO/region buckets via a custom `BucketResolver`; per-tenant KMS.
 
+## WS8 — Typed node I/O
+
+Turn node I/O from metadata-only into an enforceable contract, without changing the shared-state
+backbone or the canvas↔executable bijection (design:
+[`docs/design/typed-node-io.md`](design/typed-node-io.md)). All fields optional + backward-compatible;
+runtime enforcement defaults to observe/warn.
+
+- ☑ **(a) Runtime output-schema enforcement.** `NodeInstance.output_schema` is now *enforced*: the
+  compiler validates a node's primary output value (`primary_output_key` in `ros/engine/node_io.py`)
+  against it, reusing `tools/output_schema.py`. `output_schema_strict` raises (composes with
+  `error_handling.on_error`); otherwise observe + `nodes.output_schema_mismatch` metric.
+- ☑ **(b) Build-time contract.** Validator: `Edge.mappings.to` must be a declared state key (error),
+  `from` valid JMESPath (error), mapping on a control edge warns; malformed `output_schema`/
+  `input_schema` warn; opt-in producer→consumer presence contract (`input_schema.required`) and
+  field+type contract on mapped edges; `io_type` warning suppressed when a mapping bridges the edge.
+- ☑ **(c) Edge field-mapping.** `Edge.mappings[{from,to}]` in the schema + compiler support
+  (source-side fold, no topology change → bijection preserved).
+- ☐ **Frontend (agent-studio-frontend).** Edge-inspector "Data mapping" rows, node output/input
+  schema editor, and *infer schema from a test run* (`output_schema.infer_schema`, as tools do).
+- ☐ **Later.** Array-item/`$ref`/complex-JMESPath type reconciliation in the field-type check.
+
 ---
 
 ## Sequencing & checkpoints

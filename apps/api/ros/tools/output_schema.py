@@ -29,27 +29,29 @@ class OutputSchemaError(ValueError):
 
 def validate_output(
     value: Any, schema: dict | None, *, strict: bool = False, name: str = "tool",
+    metric: str = "tools.output_schema_mismatch",
 ) -> str | None:
     """Validate `value` (the already-PROJECTED output) against `schema`.
 
     Returns None on match or when no schema is declared. On mismatch: strict -> raise
-    OutputSchemaError; otherwise observe -> log a warning + bump `tools.output_schema_mismatch`
-    and return the error message. A malformed schema is an authoring error, not an output
-    failure, so it's logged and treated as "no schema"."""
+    OutputSchemaError; otherwise observe -> log a warning + bump the `metric` counter
+    (`tools.output_schema_mismatch` for tools, `nodes.output_schema_mismatch` for WS8 node
+    output enforcement) and return the error message. A malformed schema is an authoring error,
+    not an output failure, so it's logged and treated as "no schema"."""
     if not schema:
         return None
     try:
         jsonschema.validate(value, schema)
         return None
     except jsonschema.SchemaError as e:
-        log.warning("tool %s has an invalid output_schema; skipping validation: %s", name, e)
+        log.warning("%s has an invalid output_schema; skipping validation: %s", name, e)
         return None
     except jsonschema.ValidationError as e:
         msg = e.message
     if strict:
         raise OutputSchemaError(f"{name}: output did not match output_schema: {msg}")
-    log.warning("tool %s output_schema mismatch (observe): %s", name, msg)
-    incr("tools.output_schema_mismatch", detail=name)
+    log.warning("%s output_schema mismatch (observe): %s", name, msg)
+    incr(metric, detail=name)
     return msg
 
 

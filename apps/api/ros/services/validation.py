@@ -15,7 +15,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+import jmespath
+import jsonschema
+
 import ros.nodes  # noqa: F401  (ensure node types are registered)
+from ros.engine.node_io import primary_output_key
 from ros.engine.registry import NODE_REGISTRY, io_compatible
 from ros.schemas import contracts
 
@@ -194,6 +198,13 @@ def validate_workflow(definition: dict) -> ValidationResult:
     # io-type sanity (warnings): flag a data-node edge whose producer/consumer port types are
     # incompatible (audit F10d). Conservative - skips control/any ports and message consumers.
     _warn_io_incompatible_edges(res, definition, node_types)
+
+    # WS8 typed node I/O: validate node output/input schemas, edge data-mappings, and the
+    # opt-in producer->consumer contract (see docs/design/typed-node-io.md).
+    _check_node_schemas(res, nodes)
+    _check_edge_mappings(res, definition, node_types)
+    _check_input_contracts(res, definition, node_types)
+    _check_mapping_types(res, definition, node_types)
 
     # Agent fields exposed in the UI but not yet enforced by the compiler (audit F9): warn so
     # users aren't misled into thinking they take effect.
@@ -385,6 +396,10 @@ def _warn_io_incompatible_edges(res: ValidationResult, definition: dict, node_ty
     for j, e in enumerate(definition.get("edges", [])):
         if not isinstance(e, dict) or e.get("branches"):
             continue
+        # An edge with data-mappings explicitly rewires fields across it, so the coarse port-type
+        # bucket no longer describes the flow - the mapping bridges the types (WS8).
+        if e.get("mappings"):
+            continue
         src, tgt = e.get("source"), e.get("target")
         if tgt in END_TOKENS:
             continue
@@ -404,6 +419,236 @@ def _warn_io_incompatible_edges(res: ValidationResult, definition: dict, node_ty
                 f"Edge {src!r} → {tgt!r} connects a {s_io!r} output to a {t_io!r} input, which are "
                 f"incompatible port types. Double-check the wiring.",
             )
+
+
+# --- WS8: typed node I/O (output/input schemas + edge data-mappings + contract) ---
+
+
+def _schema_valid(schema) -> bool:
+    """True if `schema` is a well-formed JSON Schema (draft 2020-12)."""
+    if not isinstance(schema, dict):
+        return False
+    try:
+        jsonschema.Draft202012Validator.check_schema(schema)
+        return True
+    except jsonschema.SchemaError:
+        return False
+
+
+def _declared_state_keys(definition: dict) -> set[str]:
+    return set((definition.get("state") or {}).keys()) | _IMPLICIT_STATE_KEYS
+
+
+def _subagent_children(definition: dict) -> set[str]:
+    return {
+        e.get("target") for e in definition.get("edges", [])
+        if isinstance(e, dict) and e.get("source_handle") == "subagents"
+    }
+
+
+def _all_produced_keys(definition: dict) -> set[str]:
+    """Every state key some node's primary output or an edge mapping WRITES (plus the implicit
+    always-present keys). Used to flag a required input that nothing statically produces."""
+    keys = set(_IMPLICIT_STATE_KEYS)
+    for n in definition.get("nodes", []):
+        if not isinstance(n, dict):
+            continue
+        k = primary_output_key(n.get("type"), n.get("config") or {})
+        if k:
+            keys.add(k)
+    for e in definition.get("edges", []):
+        if not isinstance(e, dict):
+            continue
+        for m in e.get("mappings") or []:
+            if isinstance(m, dict) and m.get("to"):
+                keys.add(str(m["to"]))
+    return keys
+
+
+def _mapping_edge_is_control(e: dict, node_types: dict, subagent_children: set) -> bool:
+    """A mapping only carries data on a plain edge; on these it is silently ignored at compile."""
+    return bool(
+        e.get("source_handle") == "subagents"
+        or e.get("branches")
+        or node_types.get(e.get("source")) in ("router", "parallel_fanout")
+        or e.get("target") in subagent_children
+    )
+
+
+def _check_node_schemas(res: ValidationResult, nodes: list) -> None:
+    """Malformed output_schema/input_schema is an authoring error, not an output failure - warn
+    (it is ignored at runtime). Also warn when output_schema is declared on a node that has no
+    single structured output value, since enforcement is then skipped."""
+    for i, n in enumerate(nodes):
+        if not isinstance(n, dict):
+            continue
+        for f in ("output_schema", "input_schema"):
+            sch = n.get(f)
+            if sch is not None and not _schema_valid(sch):
+                res.warn(
+                    f"/nodes/{i}/{f}",
+                    f"{f} is not a valid JSON Schema, so it is ignored. Fix or remove it.",
+                    node_id=n.get("id"),
+                )
+        if n.get("output_schema") and not primary_output_key(n.get("type"), n.get("config") or {}):
+            res.warn(
+                f"/nodes/{i}/output_schema",
+                f"Node {n.get('id')!r} declares an output_schema but produces no single "
+                f"structured output value (it writes only messages/control), so the schema is "
+                f"not enforced at runtime.",
+                node_id=n.get("id"),
+            )
+
+
+def _check_edge_mappings(res: ValidationResult, definition: dict, node_types: dict) -> None:
+    """Validate edge data-mappings: `to` must be a declared state key (else the write is silently
+    dropped), `from` must be valid JMESPath, and a mapping on a control edge is ignored."""
+    declared = _declared_state_keys(definition)
+    subagent_children = _subagent_children(definition)
+    for j, e in enumerate(definition.get("edges", [])):
+        if not isinstance(e, dict):
+            continue
+        maps = e.get("mappings")
+        if not isinstance(maps, list) or not maps:
+            continue
+        if _mapping_edge_is_control(e, node_types, subagent_children):
+            res.warn(
+                f"/edges/{j}/mappings",
+                "Data mappings on a router/branch/sub-agent edge are ignored (that edge carries "
+                "control, not data). Move the mapping to a plain data edge.",
+            )
+        for k, m in enumerate(maps):
+            if not isinstance(m, dict):
+                continue
+            to, frm = m.get("to"), m.get("from")
+            if to and to not in declared:
+                res.add(
+                    f"/edges/{j}/mappings/{k}/to",
+                    f"Edge mapping writes state key {to!r}, which is not declared in the workflow "
+                    f"State - the write is silently dropped at runtime. Add {to!r} to the State "
+                    f"schema.",
+                )
+            if frm:
+                try:
+                    jmespath.compile(frm)
+                except jmespath.exceptions.JMESPathError as ex:
+                    res.add(
+                        f"/edges/{j}/mappings/{k}/from",
+                        f"Invalid JMESPath expression {frm!r}: {ex}",
+                    )
+
+
+def _check_input_contracts(res: ValidationResult, definition: dict, node_types: dict) -> None:
+    """Opt-in producer->consumer presence contract: for a node that declares `input_schema`, each
+    REQUIRED input key must be reachable. Not a declared State field => ERROR (the node can never
+    receive it); declared but written by no node/mapping => WARNING (only a trigger/initial input
+    could supply it)."""
+    declared = _declared_state_keys(definition)
+    produced = _all_produced_keys(definition)
+    for i, n in enumerate(definition.get("nodes", [])):
+        if not isinstance(n, dict):
+            continue
+        ins = n.get("input_schema")
+        if not isinstance(ins, dict) or not _schema_valid(ins):
+            continue
+        for key in ins.get("required") or []:
+            if key not in declared:
+                res.add(
+                    f"/nodes/{i}/input_schema",
+                    f"Node {n.get('id')!r} requires input {key!r}, but it is not a declared State "
+                    f"field - the node can never receive it. Add {key!r} to the State schema and "
+                    f"wire a producer (node output or edge mapping).",
+                    node_id=n.get("id"),
+                )
+            elif key not in produced:
+                res.warn(
+                    f"/nodes/{i}/input_schema",
+                    f"Node {n.get('id')!r} requires input {key!r}, but no node or edge mapping "
+                    f"writes it - it will be present only if the trigger/initial input provides it.",
+                    node_id=n.get("id"),
+                )
+
+
+# JSON-Schema type -> the buckets we treat as interchangeable for the field contract check.
+def _types_compatible(got: str | None, want: str | None) -> bool:
+    if not got or not want or got == want:
+        return True
+    # integer satisfies a number slot; anything satisfies an unconstrained/any slot.
+    return {got, want} == {"integer", "number"}
+
+
+def _producer_relative_path(frm: str, output_key: str | None) -> list[str] | None:
+    """Reduce an edge mapping `from` to the path INTO the producer's primary output value, or None
+    when it doesn't reference that value (e.g. reads another state key - unresolvable here).
+
+    `from` is evaluated over {..state, ..output, "output": output}; the producer's primary value
+    lives at `output_key` (also exposed at the top level). Only simple dotted paths are resolved;
+    an index/filter segment (`[`) stops resolution (returns None)."""
+    if not frm or "[" in frm:
+        return None
+    parts = frm.split(".")
+    if parts and parts[0] == "output":
+        parts = parts[1:]
+    if not parts or parts[0] != output_key:
+        return None
+    return parts[1:]
+
+
+def _resolve_schema_type(schema: dict, path: list[str]) -> str | None:
+    """Walk a simple property path through a JSON Schema and return the leaf `type`, or None when
+    it can't be resolved (missing properties, non-object hop, unknown type)."""
+    cur = schema
+    for seg in path:
+        if not isinstance(cur, dict):
+            return None
+        props = cur.get("properties")
+        if not isinstance(props, dict) or seg not in props:
+            return None
+        cur = props[seg]
+    t = cur.get("type") if isinstance(cur, dict) else None
+    return t if isinstance(t, str) else None
+
+
+def _check_mapping_types(res: ValidationResult, definition: dict, node_types: dict) -> None:
+    """Opt-in field+type contract on a mapped edge: when the consumer declares `input_schema` and
+    the producer declares `output_schema`, verify each mapping whose `to` is a typed consumer
+    input, and whose `from` resolves into the producer's output value, carries a compatible type.
+    Conservative - anything unresolvable is skipped, so it never false-fires."""
+    node_by_id = {n["id"]: n for n in definition.get("nodes", []) if isinstance(n, dict) and "id" in n}
+    subagent_children = _subagent_children(definition)
+    for j, e in enumerate(definition.get("edges", [])):
+        if not isinstance(e, dict):
+            continue
+        maps = e.get("mappings")
+        if not isinstance(maps, list) or not maps or _mapping_edge_is_control(e, node_types, subagent_children):
+            continue
+        producer, consumer = node_by_id.get(e.get("source")), node_by_id.get(e.get("target"))
+        if not producer or not consumer:
+            continue
+        cons_in, prod_out = consumer.get("input_schema"), producer.get("output_schema")
+        if not (isinstance(cons_in, dict) and _schema_valid(cons_in)):
+            continue
+        cons_props = cons_in.get("properties") or {}
+        out_key = primary_output_key(producer.get("type"), producer.get("config") or {})
+        for k, m in enumerate(maps):
+            if not isinstance(m, dict):
+                continue
+            to, frm = m.get("to"), m.get("from")
+            want = (cons_props.get(to) or {}).get("type") if to in cons_props else None
+            if not want:
+                continue
+            if not (isinstance(prod_out, dict) and _schema_valid(prod_out)):
+                continue
+            rel = _producer_relative_path(frm or "", out_key)
+            if rel is None:
+                continue  # references state / complex path - can't reconcile, skip
+            got = _resolve_schema_type(prod_out, rel)
+            if got and not _types_compatible(got, want):
+                res.add(
+                    f"/edges/{j}/mappings/{k}",
+                    f"Edge maps {frm!r} (type {got!r}) into input {to!r}, which expects "
+                    f"{want!r} - incompatible types.",
+                )
 
 
 def _warn_unwired_agent_fields(res: ValidationResult, nodes: list) -> None:

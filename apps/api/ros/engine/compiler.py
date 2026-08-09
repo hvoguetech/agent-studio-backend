@@ -20,6 +20,7 @@ from langgraph.graph import END, START, StateGraph
 import ros.nodes  # noqa: F401  (import registers all built-in node types)
 from ros.engine.context import CompileContext
 from ros.engine.expressions import ExpressionError, eval_expression
+from ros.engine.node_io import enforce_output_schema, fold_edge_mappings, primary_output_key
 from ros.engine.registry import get_spec
 from ros.engine.state import build_state_typeddict
 from ros.nodes.flow import (
@@ -120,12 +121,47 @@ def compile_workflow(definition: dict, ctx: CompileContext):
             if fcfg.get("child_node"):
                 fanout_children[fcfg["child_node"]] = fcfg
 
+    # Edge data-mappings (WS8 c): collect the outgoing `mappings` per SOURCE node so the source's
+    # fn can fold the mapped keys into its state update after it runs. Only plain data edges carry
+    # mappings - skip sub-agent handles, branches (control routing), edges touching a folded
+    # sub-agent child, and router/fanout sources (they route via config; their labeled edges are
+    # ignored). The validator warns on a mapping placed on any of those (it won't apply).
+    mappings_by_source: dict[str, list[dict]] = {}
+    for e in definition.get("edges", []):
+        if e.get("source_handle") == SUBAGENT_HANDLE or e.get("branches"):
+            continue
+        src = e["source"]
+        if src in subagent_child_ids or e.get("target") in subagent_child_ids:
+            continue
+        if (node_by_id.get(src) or {}).get("type") in ("router", "parallel_fanout"):
+            continue
+        maps = e.get("mappings")
+        if maps:
+            mappings_by_source.setdefault(src, []).extend(maps)
+
     # 1) add every node from its registered factory (folded sub-agent children are not nodes)
     for n in nodes:
         if n["id"] in subagent_child_ids:
             continue
         spec = get_spec(n["type"])
         node_fn = spec.factory(n.get("config", {}) or {}, ctx)
+        # Output-schema enforcement (WS8 a): validate the node's PRIMARY output value against its
+        # declared output_schema. Applied INNERMOST so a strict violation surfaces before the
+        # error_handling wrapper, letting on_error=continue/default absorb it. Skipped (with a
+        # warning) when the node has no single structured output to validate.
+        oschema = n.get("output_schema")
+        if oschema:
+            okey = primary_output_key(n["type"], n.get("config", {}) or {})
+            if okey:
+                node_fn = enforce_output_schema(
+                    node_fn, schema=oschema, strict=bool(n.get("output_schema_strict")),
+                    name=n["id"], key=okey,
+                )
+            else:
+                log.warning(
+                    "node %r declares output_schema but has no primary output value to validate; "
+                    "skipping enforcement", n["id"],
+                )
         fcfg = fanout_children.get(n["id"])
         if fcfg is not None:
             # Isolate per-item errors when the workflow opts into continue-on-error OR the
@@ -140,6 +176,11 @@ def compile_workflow(definition: dict, ctx: CompileContext):
         eh = n.get("error_handling")
         if eh:
             node_fn = with_error_handling(node_fn, eh)
+        # Edge data-mappings (WS8 c): applied OUTERMOST so mapped keys augment whatever the node
+        # (post error-handling) returned; the mapped keys ride shared state to the target.
+        maps = mappings_by_source.get(n["id"])
+        if maps:
+            node_fn = fold_edge_mappings(node_fn, maps)
         builder.add_node(n["id"], node_fn)
 
     # 2) terminal markers -> END

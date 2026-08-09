@@ -53,7 +53,9 @@
         "id": { "$ref": "ros/common#/$defs/Identifier" },
         "type": { "type": "string", "description": "Must exist in the Node Type Registry." },
         "config": { "type": "object", "description": "Validated against the node type's own schema (Section 3)." },
-        "output_schema": { "type": "object", "description": "Optional JSON Schema of the node's output (post-projection); powers builder {{...}} autocomplete + mapping validation." },
+        "output_schema": { "type": "object", "description": "Optional JSON Schema of the node's PRIMARY output value (the value written to its output_key, or structured_response for structured llm/agent). Powers builder {{...}} autocomplete + mapping validation, and (WS8) runtime output validation." },
+        "output_schema_strict": { "type": "boolean", "default": false, "description": "WS8: when true, a primary-output value that violates output_schema RAISES at runtime (composes with error_handling.on_error); otherwise the mismatch is observed (logged + a nodes.output_schema_mismatch metric) and the run continues." },
+        "input_schema": { "type": "object", "description": "WS8: optional JSON Schema of what this node expects to consume from its primary input. Used only for the opt-in build-time producer→consumer contract check; not enforced at runtime." },
         "error_handling": { "$ref": "ros/common#/$defs/ErrorHandling" },
         "position": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" } } }
       }
@@ -67,7 +69,21 @@
         "target": { "type": "string", "description": "Target node id or 'END'." },
         "target_handle": { "type": "string" },
         "condition": { "$ref": "ros/common#/$defs/Expression", "description": "If present, becomes a conditional edge." },
-        "branches": { "type": "object", "additionalProperties": { "type": "string" }, "description": "value -> target-node-id map for routers." }
+        "branches": { "type": "object", "additionalProperties": { "type": "string" }, "description": "value -> target-node-id map for routers." },
+        "mappings": {
+          "type": "array",
+          "description": "WS8: field-level data mapping applied AFTER the source node runs. Each entry copies `from` (a JMESPath over the source node's output value + the current run state) into the state key `to`. `to` MUST be a declared state field. Applies only to plain data edges (ignored on router/branches/subagent edges).",
+          "items": {
+            "type": "object",
+            "required": ["from", "to"],
+            "properties": {
+              "from": { "type": "string", "description": "JMESPath evaluated over {..state, ..node_output, \"output\": node_output}. e.g. 'output.items[0].id' or 'tool_result.data'." },
+              "to": { "type": "string", "description": "Target state key to write (must be declared in the workflow State)." }
+            },
+            "additionalProperties": false
+          },
+          "x-ui": { "widget": "rows-table", "section": "Data mapping", "columns": ["from", "to"] }
+        }
       }
     }
   }
