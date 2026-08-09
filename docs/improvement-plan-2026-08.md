@@ -211,6 +211,24 @@ This is the Postgres equivalent of DynamoDB-TTL checkpoint expiry.
 - Related (later): optional checkpoint→S3 offload for genuinely-large *state* (WS7 handles large
   *artifacts* via refs-in-state). gzip isn't needed — Postgres TOAST already compresses large values.
 
+## WS7 — Artifact storage
+
+Durable, downloadable storage for agent/tool-produced files, kept OUT of run state (design:
+[`docs/design/artifact-storage.md`](design/artifact-storage.md)). One shared bucket, isolated by a
+`{env}/{tenant}/{project}/{run}/{sha}` key prefix; content-addressed (idempotent, resume-safe);
+refs-in-state + bytes-in-store; `BucketResolver` seam for enterprise dedicated/BYO buckets.
+
+- ☑ **Phase 1 — storage layer.** `ObjectStore` (local default + s3), `BucketResolver`,
+  `ArtifactStore` (key scheme, content-addressing, size cap), config (`ROS_ARTIFACT_STORE`/`_BUCKET`/
+  `_MAX_BYTES`, `ROS_S3_*`), `[storage]` extra (boto3, lazy). Tested (local round-trip, idempotency,
+  traversal-safety, resolver, s3 shaping mocked).
+- ☐ **Phase 2 — `Artifact` model + API.** DB table (tenant/project/run/key/sha/size/content_type) +
+  migration; upload/list/download(presign)/delete router gated by `artifact:read/write`.
+- ☐ **Phase 3 — producers + GC.** Wire the deep-agent filesystem backend + a tool-artifact emit path
+  to `ArtifactStore` (refs-in-state); ref-aware retention + cascade delete; per-tenant storage quota;
+  egress allowlist for the bucket endpoint.
+- ☐ **Phase 4 — enterprise.** Dedicated/BYO/region buckets via a custom `BucketResolver`; per-tenant KMS.
+
 ---
 
 ## Sequencing & checkpoints

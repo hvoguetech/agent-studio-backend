@@ -145,6 +145,21 @@ class Settings(BaseSettings):
     # fine for local dev.
     fastembed_cache_dir: str | None = None
 
+    # --- Artifact storage (WS7 - docs/design/artifact-storage.md). Durable, downloadable storage
+    # for agent/tool-produced files, kept OUT of run state. "local" (default) writes to the data
+    # volume (single-node/dev); "s3" uses an S3-compatible bucket (Railway bucket / R2 / MinIO / AWS
+    # via s3_endpoint_url). One shared bucket, isolated by a {env}/{tenant}/{project} key prefix. ---
+    artifact_store: str = "local"  # local | s3
+    artifact_bucket: str = "ros-artifacts"
+    artifact_max_bytes: int = 100 * 1024 * 1024  # per-artifact cap; 0 = unlimited
+    artifact_local_dir: str = Field(default_factory=lambda: (_DEFAULT_DATA_DIR / "artifacts").as_posix())
+    # S3-compatible endpoint (artifact_store="s3"). Needs the [storage] extra (boto3). Empty endpoint
+    # => real AWS; set it for Railway/R2/MinIO. Keep the secret in a secret manager, not the repo.
+    s3_endpoint_url: str | None = None
+    s3_region: str | None = None
+    s3_access_key_id: str | None = None
+    s3_secret_access_key: str | None = None
+
     # --- Cache / queue (in-process locally; Redis in prod) ---
     redis_url: str | None = None  # None => in-process fakes
 

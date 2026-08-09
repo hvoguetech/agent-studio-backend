@@ -77,6 +77,9 @@ observability = [
 # Knowledge ingestion loaders/splitters + lexical (BM25) ranking for hybrid search +
 # fastembed (local open-source ONNX embedder, no API cost / no PyTorch).
 knowledge = ["langchain-text-splitters>=1,<2", "pypdf>=5", "beautifulsoup4>=4.12", "rank-bm25>=0.2,<1", "fastembed>=0.3,<1"]
+# S3-compatible artifact storage (ROS_ARTIFACT_STORE=s3). boto3 is lazy-imported, so the core
+# only needs this when the s3 backend is selected.
+storage = ["boto3>=1.34,<2"]
 # One-shot convenience for a fully-functional local app: vector store + model providers
 # + knowledge loaders + MCP. Excludes prod-only infra (workers, observability), which
 # the local stack fakes in-process. Install with: pip install -e ".[dev,all]"
