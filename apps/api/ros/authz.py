@@ -41,6 +41,8 @@ PERMISSIONS: dict[str, str] = {
     "agent:write": EDITOR,
     "apikey:read": ADMIN,
     "apikey:write": ADMIN,
+    "artifact:read": VIEWER,
+    "artifact:write": EDITOR,
     "assistant:write": EDITOR,
     "audit:read": ADMIN,
     "auth_provider:read": VIEWER,

@@ -528,3 +528,20 @@ class UserSecurity(PkTimestamp, Base):
     email_verified_at: Mapped[datetime | None] = mapped_column(nullable=True)
     totp_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
     totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class Artifact(PkTimestamp, Base):
+    """A durable, downloadable artifact an agent/tool produced (WS7). The bytes live in the object
+    store (ros.artifacts); this tenant/project/run-scoped row is the record + pointer (bucket/key
+    plus sha256 for content-addressing). tenant_id/project_id use query-level scoping like Run/Thread."""
+
+    __tablename__ = "artifacts"
+    tenant_id: Mapped[str] = mapped_column(String(36), index=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    run_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    bucket: Mapped[str] = mapped_column(String(255))
+    key: Mapped[str] = mapped_column(String(1024))
+    sha256: Mapped[str] = mapped_column(String(64), index=True)
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    content_type: Mapped[str] = mapped_column(String(255), default="application/octet-stream")
+    filename: Mapped[str | None] = mapped_column(String(255), nullable=True)

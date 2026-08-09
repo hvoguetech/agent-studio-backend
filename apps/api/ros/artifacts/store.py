@@ -75,6 +75,9 @@ class ArtifactStore:
     async def get(self, ref: ArtifactRef) -> bytes:
         return await self.backend.get_bytes(ref.bucket, ref.key)
 
+    async def delete(self, ref: ArtifactRef) -> None:
+        await self.backend.delete_object(ref.bucket, ref.key)
+
     async def presign(self, ref: ArtifactRef, *, expires_s: int = 900) -> str:
         return await self.backend.presign_get(
             ref.bucket, ref.key, expires_s=expires_s, filename=ref.filename

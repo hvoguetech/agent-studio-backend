@@ -22,6 +22,7 @@ from ros.db import SessionLocal, init_db
 from ros.db.seed import bootstrap, seed_demo_data
 from ros.routers import (
     agents,
+    artifacts,
     assistant,
     audit,
     auth,
@@ -285,7 +286,7 @@ def create_app() -> FastAPI:
         health.router, auth.router, auth.team_router, auth.workspace_router, auth.apikeys_router,
         audit.router, oauth.router, hooks.router,
         models.router, nodes.router, projects.router, workflows.router, runs.router, project_run.router,
-        tool_sets.router, tools.router, components.router, embed.router, embed_public.router, auth_providers.router, connections.router, secrets.router, agents.router,
+        tool_sets.router, tools.router, components.router, embed.router, embed_public.router, auth_providers.router, connections.router, secrets.router, agents.router, artifacts.router,
         knowledge.router, knowledge.qa_router, traces.router, conversations.router, assistant.router, stats.router,
         triggers_router.router, channels.router, channels.public, handoff.router, evals.router,
         pricing.router, mcp_oauth.router, mcp_server.router, mcp_tokens.router, mcp_clients.router, versions.router,

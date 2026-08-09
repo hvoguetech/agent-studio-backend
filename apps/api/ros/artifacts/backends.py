@@ -57,10 +57,13 @@ class LocalObjectStore:
 
         return await asyncio.to_thread(_delete)
 
+    async def delete_object(self, bucket: str, key: str) -> None:
+        await asyncio.to_thread(lambda: self._path(bucket, key).unlink(missing_ok=True))
+
     async def presign_get(
         self, bucket: str, key: str, *, expires_s: int = 900, filename: str | None = None
     ) -> str:
-        # No signing service locally; the Phase-2 router serves this via an authorized route.
+        # No signing service locally; the artifact router serves this via an authorized route.
         return f"local://{bucket}/{key}"
 
 
@@ -117,6 +120,9 @@ class S3ObjectStore:
             return n
 
         return await asyncio.to_thread(_delete)
+
+    async def delete_object(self, bucket: str, key: str) -> None:
+        await asyncio.to_thread(self._client.delete_object, Bucket=bucket, Key=key)
 
     async def presign_get(
         self, bucket: str, key: str, *, expires_s: int = 900, filename: str | None = None

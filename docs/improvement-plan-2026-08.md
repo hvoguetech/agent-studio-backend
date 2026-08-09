@@ -222,8 +222,9 @@ refs-in-state + bytes-in-store; `BucketResolver` seam for enterprise dedicated/B
   `ArtifactStore` (key scheme, content-addressing, size cap), config (`ROS_ARTIFACT_STORE`/`_BUCKET`/
   `_MAX_BYTES`, `ROS_S3_*`), `[storage]` extra (boto3, lazy). Tested (local round-trip, idempotency,
   traversal-safety, resolver, s3 shaping mocked).
-- ☐ **Phase 2 — `Artifact` model + API.** DB table (tenant/project/run/key/sha/size/content_type) +
-  migration; upload/list/download(presign)/delete router gated by `artifact:read/write`.
+- ☑ **Phase 2 — `Artifact` model + API.** DB table (tenant/project/run/key/sha/size/content_type) +
+  migration `0012_artifacts`; upload/list/download(presign or streamed)/delete router gated by
+  `artifact:read/write` (added to the registry). `ObjectStore.delete_object` for per-artifact delete.
 - ☐ **Phase 3 — producers + GC.** Wire the deep-agent filesystem backend + a tool-artifact emit path
   to `ArtifactStore` (refs-in-state); ref-aware retention + cascade delete; per-tenant storage quota;
   egress allowlist for the bucket endpoint.
