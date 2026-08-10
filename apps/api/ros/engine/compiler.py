@@ -20,7 +20,12 @@ from langgraph.graph import END, START, StateGraph
 import ros.nodes  # noqa: F401  (import registers all built-in node types)
 from ros.engine.context import CompileContext
 from ros.engine.expressions import ExpressionError, eval_expression
-from ros.engine.node_io import enforce_output_schema, fold_edge_mappings, primary_output_key
+from ros.engine.node_io import (
+    enforce_input_schema,
+    enforce_output_schema,
+    fold_edge_mappings,
+    primary_output_key,
+)
 from ros.engine.registry import get_spec
 from ros.engine.state import build_state_typeddict
 from ros.nodes.flow import (
@@ -162,6 +167,15 @@ def compile_workflow(definition: dict, ctx: CompileContext):
                     "node %r declares output_schema but has no primary output value to validate; "
                     "skipping enforcement", n["id"],
                 )
+        # Input-schema enforcement (WS8): validate the incoming state against the node's
+        # input_schema BEFORE it runs. Also innermost (inside error_handling) so a strict input
+        # violation composes with on_error. Catches bad trigger/initial inputs and multi-source
+        # state that output validation upstream can't.
+        ischema = n.get("input_schema")
+        if ischema:
+            node_fn = enforce_input_schema(
+                node_fn, schema=ischema, strict=bool(n.get("input_schema_strict")), name=n["id"],
+            )
         fcfg = fanout_children.get(n["id"])
         if fcfg is not None:
             # Isolate per-item errors when the workflow opts into continue-on-error OR the

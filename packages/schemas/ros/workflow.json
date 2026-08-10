@@ -55,7 +55,8 @@
         "config": { "type": "object", "description": "Validated against the node type's own schema (Section 3)." },
         "output_schema": { "type": "object", "description": "Optional JSON Schema of the node's PRIMARY output value (the value written to its output_key, or structured_response for structured llm/agent). Powers builder {{...}} autocomplete + mapping validation, and (WS8) runtime output validation." },
         "output_schema_strict": { "type": "boolean", "default": false, "description": "WS8: when true, a primary-output value that violates output_schema RAISES at runtime (composes with error_handling.on_error); otherwise the mismatch is observed (logged + a nodes.output_schema_mismatch metric) and the run continues." },
-        "input_schema": { "type": "object", "description": "WS8: optional JSON Schema of what this node expects to consume from its primary input. Used only for the opt-in build-time producer→consumer contract check; not enforced at runtime." },
+        "input_schema": { "type": "object", "description": "WS8: optional JSON Schema of what this node expects to consume (as declared state keys). Drives the build-time producer→consumer contract check AND, when set, runtime input validation before the node runs." },
+        "input_schema_strict": { "type": "boolean", "default": false, "description": "WS8: when true, incoming state that violates input_schema RAISES before the node runs (composes with error_handling.on_error); otherwise the mismatch is observed (logged + a nodes.input_schema_mismatch metric) and the node still runs." },
         "error_handling": { "$ref": "ros/common#/$defs/ErrorHandling" },
         "position": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" } } }
       }

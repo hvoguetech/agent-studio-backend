@@ -128,6 +128,31 @@ def enforce_output_schema(fn, *, schema: dict, strict: bool, name: str, key: str
     return _wrapped
 
 
+def enforce_input_schema(fn, *, schema: dict, strict: bool, name: str):
+    """WS8: validate a node's INPUT (the incoming shared state, projected to the keys its
+    `input_schema` mentions) BEFORE it runs. Observe/warn by default (logs + a
+    `nodes.input_schema_mismatch` metric); strict RAISES `OutputSchemaError` before the node
+    executes, which propagates to the node's error_handling wrapper. Projecting to the schema's
+    own keys keeps `additionalProperties:false` schemas from tripping on unrelated state channels
+    (messages, loop counters, …); a missing REQUIRED key still fails via the schema's `required`."""
+    from ros.tools.output_schema import validate_output
+
+    invoke = bind_invoke(fn)
+    props = schema.get("properties") if isinstance(schema, dict) else None
+    keys = set(props or {}) | set(schema.get("required") or [] if isinstance(schema, dict) else [])
+
+    async def _wrapped(state: dict, config=None) -> Any:
+        if isinstance(state, dict) and keys:
+            projected = {k: state[k] for k in keys if k in state}
+            validate_output(
+                projected, schema, strict=strict, name=name,
+                metric="nodes.input_schema_mismatch", noun="input", label="input_schema",
+            )
+        return await invoke(state, config)
+
+    return _wrapped
+
+
 def fold_edge_mappings(fn, mappings: list[dict]):
     """WS8 (c): wrap a source node fn so, after it runs, the outgoing edges' `mappings` are
     applied and merged into its state update. Mapped keys ride the shared state to whatever

@@ -241,10 +241,15 @@ runtime enforcement defaults to observe/warn.
   compiler validates a node's primary output value (`primary_output_key` in `ros/engine/node_io.py`)
   against it, reusing `tools/output_schema.py`. `output_schema_strict` raises (composes with
   `error_handling.on_error`); otherwise observe + `nodes.output_schema_mismatch` metric.
+- ☑ **(a2) Runtime input validation.** `input_schema` is enforced at runtime too: `enforce_input_schema`
+  validates the incoming state (projected to the schema's keys) before the node runs; observe +
+  `nodes.input_schema_mismatch`, `input_schema_strict` raises (composes with `on_error`). Catches bad
+  entry/trigger inputs. Symmetric with output enforcement.
 - ☑ **(b) Build-time contract.** Validator: `Edge.mappings.to` must be a declared state key (error),
   `from` valid JMESPath (error), mapping on a control edge warns; malformed `output_schema`/
-  `input_schema` warn; opt-in producer→consumer presence contract (`input_schema.required`) and
-  field+type contract on mapped edges; `io_type` warning suppressed when a mapping bridges the edge.
+  `input_schema` warn; opt-in producer→consumer presence contract (`input_schema.required`),
+  field+type contract on mapped edges, and a **plain-edge contract** (A.output_schema vs B.input_schema
+  when B names A's output key); `io_type` warning suppressed when a mapping bridges the edge.
 - ☑ **(c) Edge field-mapping.** `Edge.mappings[{from,to}]` in the schema + compiler support
   (source-side fold, no topology change → bijection preserved).
 - ☐ **Frontend (agent-studio-frontend).** Edge-inspector "Data mapping" rows, node output/input

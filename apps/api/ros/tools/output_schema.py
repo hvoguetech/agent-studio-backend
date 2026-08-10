@@ -29,28 +29,29 @@ class OutputSchemaError(ValueError):
 
 def validate_output(
     value: Any, schema: dict | None, *, strict: bool = False, name: str = "tool",
-    metric: str = "tools.output_schema_mismatch",
+    metric: str = "tools.output_schema_mismatch", noun: str = "output", label: str = "output_schema",
 ) -> str | None:
-    """Validate `value` (the already-PROJECTED output) against `schema`.
+    """Validate `value` against `schema`.
 
     Returns None on match or when no schema is declared. On mismatch: strict -> raise
-    OutputSchemaError; otherwise observe -> log a warning + bump the `metric` counter
-    (`tools.output_schema_mismatch` for tools, `nodes.output_schema_mismatch` for WS8 node
-    output enforcement) and return the error message. A malformed schema is an authoring error,
-    not an output failure, so it's logged and treated as "no schema"."""
+    OutputSchemaError; otherwise observe -> log a warning + bump the `metric` counter and return
+    the error message. `noun`/`label` word the message so this serves both output validation
+    (default: "output"/"output_schema") and WS8 runtime input validation ("input"/"input_schema").
+    A malformed schema is an authoring error, not a data failure, so it's logged and treated as
+    "no schema"."""
     if not schema:
         return None
     try:
         jsonschema.validate(value, schema)
         return None
     except jsonschema.SchemaError as e:
-        log.warning("%s has an invalid output_schema; skipping validation: %s", name, e)
+        log.warning("%s has an invalid %s; skipping validation: %s", name, label, e)
         return None
     except jsonschema.ValidationError as e:
         msg = e.message
     if strict:
-        raise OutputSchemaError(f"{name}: output did not match output_schema: {msg}")
-    log.warning("%s output_schema mismatch (observe): %s", name, msg)
+        raise OutputSchemaError(f"{name}: {noun} did not match {label}: {msg}")
+    log.warning("%s %s mismatch (observe): %s", name, label, msg)
     incr(metric, detail=name)
     return msg
 

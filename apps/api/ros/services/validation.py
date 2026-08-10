@@ -205,6 +205,7 @@ def validate_workflow(definition: dict) -> ValidationResult:
     _check_edge_mappings(res, definition, node_types)
     _check_input_contracts(res, definition, node_types)
     _check_mapping_types(res, definition, node_types)
+    _check_plain_edge_contract(res, definition, node_types)
 
     # Agent fields exposed in the UI but not yet enforced by the compiler (audit F9): warn so
     # users aren't misled into thinking they take effect.
@@ -649,6 +650,42 @@ def _check_mapping_types(res: ValidationResult, definition: dict, node_types: di
                     f"Edge maps {frm!r} (type {got!r}) into input {to!r}, which expects "
                     f"{want!r} - incompatible types.",
                 )
+
+
+def _check_plain_edge_contract(res: ValidationResult, definition: dict, node_types: dict) -> None:
+    """Opt-in producer→consumer contract on a PLAIN edge (no explicit mapping): when the producer
+    declares `output_schema`, the consumer declares `input_schema`, and the consumer's input_schema
+    names the producer's primary OUTPUT KEY (i.e. it consumes that key by shared-state convention),
+    verify the produced value's type is compatible with the type the consumer expects there. Fires
+    only on that exact overlap, so it never false-fires on unrelated shared state."""
+    node_by_id = {n["id"]: n for n in definition.get("nodes", []) if isinstance(n, dict) and "id" in n}
+    subagent_children = _subagent_children(definition)
+    for j, e in enumerate(definition.get("edges", [])):
+        if not isinstance(e, dict) or e.get("mappings"):  # mapped edges: _check_mapping_types
+            continue
+        if e.get("target") in END_TOKENS or _mapping_edge_is_control(e, node_types, subagent_children):
+            continue
+        producer, consumer = node_by_id.get(e.get("source")), node_by_id.get(e.get("target"))
+        if not producer or not consumer:
+            continue
+        prod_out, cons_in = producer.get("output_schema"), consumer.get("input_schema")
+        if not (isinstance(prod_out, dict) and _schema_valid(prod_out)):
+            continue
+        if not (isinstance(cons_in, dict) and _schema_valid(cons_in)):
+            continue
+        out_key = primary_output_key(producer.get("type"), producer.get("config") or {})
+        cons_props = cons_in.get("properties") or {}
+        if not out_key or out_key not in cons_props:
+            continue
+        want = (cons_props.get(out_key) or {}).get("type")
+        got = prod_out.get("type")
+        if want and got and not _types_compatible(got, want):
+            res.add(
+                f"/edges/{j}",
+                f"Edge {e.get('source')!r} → {e.get('target')!r}: producer output (type {got!r}) is "
+                f"written to state key {out_key!r}, but {e.get('target')!r} expects {want!r} there — "
+                f"incompatible types.",
+            )
 
 
 def _warn_unwired_agent_fields(res: ValidationResult, nodes: list) -> None:

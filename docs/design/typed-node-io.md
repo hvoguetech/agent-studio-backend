@@ -34,8 +34,12 @@ observe/warn (never a surprise hard failure).
   value that violates `output_schema` **raises** at runtime (composes with
   `error_handling.on_error`); otherwise the mismatch is **observed** (logged + a
   `nodes.output_schema_mismatch` metric) and the run continues.
-- **`NodeInstance.input_schema`** *(new)* — JSON Schema of what the node expects to consume. Used
-  only by the build-time contract check; **not enforced at runtime**.
+- **`NodeInstance.input_schema`** *(new)* — JSON Schema of what the node expects to consume (as
+  declared state keys). Drives the build-time producer→consumer contract check **and** runtime
+  input validation before the node runs.
+- **`NodeInstance.input_schema_strict`** *(new, default `false`)* — when `true`, incoming state that
+  violates `input_schema` **raises** before the node runs (composes with `error_handling.on_error`);
+  otherwise the mismatch is **observed** (logged + `nodes.input_schema_mismatch`) and the node runs.
 - **`Edge.mappings`** *(new)* — `[{ "from": <JMESPath>, "to": <state key> }]`. After the source
   node runs, each `from` is evaluated over `{…state, …node_output, "output": node_output}` and the
   result is written to state key `to`. Applies only to plain data edges (ignored on
@@ -52,8 +56,15 @@ tool-level `ros/tools/output_schema.py::validate_output` (now parameterized by `
 skipped when the node produced nothing that run (the key isn't in its update) or has no primary
 output value (a messages-only agent — the validator warns at build time).
 
-Wrapping order (inner → outer): `raw node → enforce_output_schema → [resilient_fanout_child] →
-[with_error_handling] → fold_edge_mappings`.
+**Runtime input validation** (symmetric): a node whose instance declares `input_schema` is wrapped
+with `enforce_input_schema(...)`, which validates the incoming state — projected to the keys the
+schema mentions, so `additionalProperties:false` schemas don't trip on unrelated channels
+(`messages`, loop counters) — *before* the node runs. Observe by default (`nodes.input_schema_mismatch`);
+`input_schema_strict` raises pre-run (composing with `on_error`). This also catches bad **entry /
+trigger inputs** that no upstream `output_schema` covers.
+
+Wrapping order (inner → outer): `raw node → enforce_output_schema → enforce_input_schema →
+[resilient_fanout_child] → [with_error_handling] → fold_edge_mappings`.
 
 ## (c) Edge field-mapping — `ros/engine/`
 
@@ -79,6 +90,11 @@ edges, `subagents` handles, or edges touching a folded sub-agent child.
   the producer declares `output_schema`, each mapping whose `to` is a typed consumer input and whose
   `from` resolves into the producer's output value is type-checked (**error** on a definite
   mismatch; `integer`⊆`number`; anything unresolvable is skipped, so it never false-fires).
+- **Plain-edge contract (opt-in):** on a plain edge A→B *without* a mapping, when A declares
+  `output_schema`, B declares `input_schema`, and B's input_schema names A's primary **output key**
+  (i.e. B consumes that key by shared-state convention), the produced value's type is checked
+  against the type B expects there (**error** on mismatch). Fires only on that exact key overlap, so
+  it never false-fires on unrelated shared state.
 - The coarse `io_type` edge warning is **suppressed when the edge has mappings** (the mapping
   bridges the types).
 
