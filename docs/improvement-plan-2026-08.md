@@ -255,9 +255,16 @@ runtime enforcement defaults to observe/warn.
 - ☑ **Frontend (agent-studio-frontend).** Edge-inspector "Data mapping" rows, node output/input
   schema editors (+ strict toggles), a Structured-JSON-output (`response_format`) control on
   llm/agent, and an opt-in "infer input from upstream" button.
+- ☑ **Export to LangGraph Studio.** `GET …/workflows/{id}/export/langgraph` returns a `langgraph dev`
+  project (langgraph.json + graph.py + executable.json + README/.env/requirements) that reconstructs
+  the compiled graph via `compile_workflow` for local debugging; toolbar "LangGraph" download button.
+  Models resolve from env keys; tool_call/retrieval degrade offline. See `ros/services/langgraph_export.py`.
 - ☐ **Enhancement — infer schema from a test run.** Populate a node's output/input schema from an
   actual run's observed values (reuse `output_schema.infer_schema`, as tools do). Spec:
   [`docs/specs/enhancement-infer-schema-from-test-run.md`](specs/enhancement-infer-schema-from-test-run.md).
+- ☐ **Enhancement — first-class `code` node.** A graph node running sandboxed Python via the existing
+  `execute_code` seam (restricted/freestyle), like `transform` but for code. Infra (sandbox tiers,
+  gating) already exists for the code *tool*; needs a node factory + schema + form. Not yet filed.
 - ☐ **Later.** Array-item/`$ref`/complex-JMESPath type reconciliation in the field-type check.
 
 ---
