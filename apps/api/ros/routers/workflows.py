@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import re
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ros.authz import require_permission
@@ -18,6 +21,7 @@ from ros.schemas.dto import (
     WorkflowOut,
     WorkflowUpdate,
 )
+from ros.services.langgraph_export import build_zip
 from ros.services.portability import PortabilityService
 from ros.services.versions import safe_snapshot
 from ros.services.workflows import WorkflowService
@@ -30,6 +34,30 @@ async def export_workflows(project_id: str, body: ExportIn, session: AsyncSessio
                            tenant_id: str = Depends(current_tenant_id)):
     """Serialize the selected workflows (canvas + executable) into a downloadable bundle."""
     return await PortabilityService.export(session, tenant_id, project_id, "workflow", body.ids)
+
+
+@router.get("/{workflow_id}/export/langgraph", dependencies=[Depends(require_permission("workflow:read"))])
+async def export_workflow_langgraph(
+    project_id: str,
+    workflow_id: str,
+    session: AsyncSession = Depends(get_session),
+    tenant_id: str = Depends(current_tenant_id),
+):
+    """Download a runnable LangGraph Studio project (langgraph.json + graph.py + executable.json +
+    README/.env/requirements) that reconstructs this workflow's compiled graph for local
+    `langgraph dev` debugging."""
+    wf = await WorkflowService.get(session, tenant_id, workflow_id)
+    if wf is None:
+        raise HTTPException(404, "Workflow not found")
+    if not wf.executable:
+        raise HTTPException(422, "This workflow has no executable yet — save/publish it first.")
+    data = build_zip(workflow_id, wf.name, wf.executable)
+    safe = re.sub(r"[^A-Za-z0-9_-]", "-", (wf.name or workflow_id)).strip("-") or "workflow"
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{safe}-langgraph.zip"'},
+    )
 
 
 @router.post("/import", response_model=ImportReport, dependencies=[Depends(require_permission("workflow:write"))])
