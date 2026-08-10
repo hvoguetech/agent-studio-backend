@@ -252,8 +252,12 @@ runtime enforcement defaults to observe/warn.
   when B names A's output key); `io_type` warning suppressed when a mapping bridges the edge.
 - ☑ **(c) Edge field-mapping.** `Edge.mappings[{from,to}]` in the schema + compiler support
   (source-side fold, no topology change → bijection preserved).
-- ☐ **Frontend (agent-studio-frontend).** Edge-inspector "Data mapping" rows, node output/input
-  schema editor, and *infer schema from a test run* (`output_schema.infer_schema`, as tools do).
+- ☑ **Frontend (agent-studio-frontend).** Edge-inspector "Data mapping" rows, node output/input
+  schema editors (+ strict toggles), a Structured-JSON-output (`response_format`) control on
+  llm/agent, and an opt-in "infer input from upstream" button.
+- ☐ **Enhancement — infer schema from a test run.** Populate a node's output/input schema from an
+  actual run's observed values (reuse `output_schema.infer_schema`, as tools do). Spec:
+  [`docs/specs/enhancement-infer-schema-from-test-run.md`](specs/enhancement-infer-schema-from-test-run.md).
 - ☐ **Later.** Array-item/`$ref`/complex-JMESPath type reconciliation in the field-type check.
 
 ---

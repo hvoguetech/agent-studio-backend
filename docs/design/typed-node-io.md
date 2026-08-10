@@ -100,10 +100,10 @@ edges, `subagents` handles, or edges touching a folded sub-agent child.
 
 ## Not in scope / follow-ups
 
-- **Frontend (agent-studio-frontend):** edge inspector "Data mapping" rows (`from`/`to`), a node
-  output/input schema editor, and *infer schema from a test run* (reuse
-  `output_schema.infer_schema`, as tools already do). The JSON contract above is stable for the
-  canvas to serialize.
+- **Frontend (agent-studio-frontend):** edge inspector "Data mapping" rows (`from`/`to`), node
+  output/input schema editors, the Structured-JSON-output control, and the "infer input from
+  upstream" button are shipped. *Infer schema from a test run* is filed as an enhancement:
+  [`docs/specs/enhancement-infer-schema-from-test-run.md`](../specs/enhancement-infer-schema-from-test-run.md).
 - **Deeper type reconciliation:** array item types, `$ref`, and non-trivial JMESPath (filters,
   projections) are intentionally not resolved by the field-type check today.
 
