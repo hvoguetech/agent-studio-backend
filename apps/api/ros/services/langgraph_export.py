@@ -50,9 +50,10 @@ def make_graph(checkpointer=None):
         # Resolve a `subworkflow` reference to this same exported workflow (best-effort offline).
         workflows={_EXECUTABLE.get("id") or "workflow": _EXECUTABLE},
     )
-    # Offline note: tool_call/retrieval nodes need this project's tools/knowledge, which aren't
-    # exported - they degrade (tool "not available" / empty retrieval). agent/llm/router/
-    # transform/loop/code run fully with provider keys from the environment.
+    # Offline note: tool_call/retrieval/subworkflow nodes need this project's tools/knowledge/
+    # sibling workflows, which aren't exported - they degrade (tool "not available" / empty
+    # retrieval / no-op subworkflow). agent/llm/router/transform/loop run fully with provider
+    # keys from the environment.
     return compile_workflow(_EXECUTABLE, ctx)
 
 
@@ -106,9 +107,16 @@ To run it headless instead: `python graph.py`.
 
 - Models resolve from environment keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, …)
   via `init_chat_model`. Set `ROS_DEFAULT_MODEL` for nodes that leave the model blank.
-- `tool_call` and `retrieval` nodes need this project's tools/knowledge base, which are **not**
-  part of this export — offline they degrade (a "tool not available" result / empty retrieval).
-  `agent`/`llm`/`router`/`transform`/`loop`/`code` run fully.
+- `tool_call`, `retrieval`, and `subworkflow` (referencing *other* workflows) need this project's
+  tools / knowledge base / sibling workflows, which are **not** part of this export — offline they
+  degrade (a "tool not available" result / empty retrieval / no-op subworkflow).
+  `agent`/`llm`/`router`/`transform`/`loop` run fully.
+- **HITL** (`human_input` / `handoff`) needs a checkpointer to pause/resume: `langgraph dev`
+  provides thread persistence; running `python graph.py` uses an in-memory saver (see the file).
+- **Versions:** install into a clean virtualenv and let the `ros` install pin `langgraph`/`langchain`
+  (this project was exported against a specific langgraph version). Mixing a global env can conflict.
+- **Secrets:** `executable.json` is the workflow definition verbatim — it should carry secret
+  *references*, not raw keys. Review it before sharing the bundle.
 - The graph is regenerated from `executable.json`; edit that (or re-export) to change the workflow.
 '''
 
@@ -118,9 +126,10 @@ _LANGGRAPH_JSON = {
     "env": ".env",
 }
 
-_REQUIREMENTS = """langgraph>=0.2
-langgraph-cli[inmem]>=0.1.55
-# The open-core ROS engine that compiles the workflow (public repo). Install it into this venv:
+_REQUIREMENTS = """# Run this exported workflow with `langgraph dev` (LangGraph Studio):
+langgraph-cli[inmem]>=0.2
+# Plus the open-core ROS engine that compiles the workflow. It pulls a COMPATIBLE langgraph +
+# langchain, so don't pin langgraph here (let ROS own the version). Not on PyPI - install from source:
 #   git clone https://github.com/marutsinghhvogue/agent-studio-backend
 #   pip install -e agent-studio-backend/apps/api
 """

@@ -103,6 +103,20 @@ async def test_input_schema_missing_required_key_strict_raises():
     assert "input_schema" in str(ei.value)
 
 
+async def test_input_schema_projection_ignores_unrelated_channels():
+    # additionalProperties:false must NOT trip on always-present channels like `messages` — the
+    # enforcer projects the state to the schema's own keys. A satisfied input passes even strict.
+    wf = copy.deepcopy(_LINEAR)
+    wf["nodes"][1]["input_schema"] = {"type": "object", "required": ["payload"], "additionalProperties": False,
+                                      "properties": {"payload": {"type": "object"}}}
+    wf["nodes"][1]["input_schema_strict"] = True
+    out = await _compiled(wf).ainvoke(
+        {"payload": {"a": 1}, "messages": [{"role": "user", "content": "hi"}]},
+        {"configurable": {"thread_id": "m8"}},
+    )
+    assert out["data"] == {"a": 1}  # messages present but ignored by the projected input check
+
+
 # --- build-time contract (validator) --------------------------------------------------------
 
 
