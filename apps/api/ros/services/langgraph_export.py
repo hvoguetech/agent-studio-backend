@@ -18,62 +18,15 @@ import json
 import re
 import zipfile
 
-# NB: this is a literal Python-file template — do NOT str.format() it (it's full of braces).
-# The only substitution is the __WORKFLOW_NAME__ sentinel in the docstring (see build_files).
-_GRAPH_PY = '''"""LangGraph Studio entry point for the exported ROS workflow: "__WORKFLOW_NAME__".
-
-Reconstructs the workflow's compiled StateGraph via the open-core ROS engine so you can run and
-debug it locally with `langgraph dev` (LangGraph Studio). Provider API keys are read from the
-environment (.env) by the model layer (langchain init_chat_model).
-"""
-from __future__ import annotations
-
-import json
-import os
-from pathlib import Path
-
-from ros.engine.compiler import compile_workflow
-from ros.engine.context import CompileContext
-
-_EXECUTABLE = json.loads((Path(__file__).parent / "executable.json").read_text(encoding="utf-8"))
-
-
-def make_graph(checkpointer=None):
-    """Return the compiled workflow graph. `langgraph dev` calls this and injects its own
-    thread persistence, so we leave the checkpointer unset here; pass an InMemorySaver() to run
-    the graph standalone (see the __main__ block below)."""
-    ctx = CompileContext(
-        tenant_id="local",
-        project_id="local",
-        checkpointer=checkpointer,
-        default_model=os.environ.get("ROS_DEFAULT_MODEL"),
-        # Resolve a `subworkflow` reference to this same exported workflow (best-effort offline).
-        workflows={_EXECUTABLE.get("id") or "workflow": _EXECUTABLE},
-    )
-    # Offline note: tool_call/retrieval/subworkflow nodes need this project's tools/knowledge/
-    # sibling workflows, which aren't exported - they degrade (tool "not available" / empty
-    # retrieval / no-op subworkflow). agent/llm/router/transform/loop run fully with provider
-    # keys from the environment.
-    return compile_workflow(_EXECUTABLE, ctx)
-
-
-if __name__ == "__main__":  # standalone debug run (no Studio)
-    import asyncio
-
-    from langgraph.checkpoint.memory import InMemorySaver
-
-    graph = make_graph(InMemorySaver())
-    result = asyncio.run(graph.ainvoke(
-        {"messages": [{"role": "user", "content": "hello"}]},
-        {"configurable": {"thread_id": "local-1"}},
-    ))
-    print(json.dumps(str(result), indent=2))
-'''
+from ros.services.langgraph_transpile import transpile
 
 _README = '''# {name} — LangGraph Studio export
 
-This is a `langgraph dev` project that reconstructs the ROS workflow **{name}** as a real
-LangGraph graph so you can run and debug it locally in **LangGraph Studio**.
+This is a `langgraph dev` project. `graph.py` is a **readable, explicit LangGraph `StateGraph`**
+transpiled from the ROS workflow **{name}** — every node and edge is literal Python you can edit.
+`start`/`end`/`transform`/`llm` are inlined; `agent`/`tool_call`/`retrieval`/etc. delegate to the
+ROS engine via `_ros()` (their behaviour — agent middleware, materialized tools, RAG — can't be
+inlined as plain LangGraph). Run and debug it locally in **LangGraph Studio**.
 
 ## 1. Install
 
@@ -107,17 +60,21 @@ To run it headless instead: `python graph.py`.
 
 - Models resolve from environment keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, …)
   via `init_chat_model`. Set `ROS_DEFAULT_MODEL` for nodes that leave the model blank.
-- `tool_call`, `retrieval`, and `subworkflow` (referencing *other* workflows) need this project's
-  tools / knowledge base / sibling workflows, which are **not** part of this export — offline they
-  degrade (a "tool not available" result / empty retrieval / no-op subworkflow).
-  `agent`/`llm`/`router`/`transform`/`loop` run fully.
+- `llm`, `transform`, `router`, `loop`, `join` run fully. `agent`/`deep_agent` run via `_ros()`
+  (fully, unless they call ROS-**materialized tools**). `tool_call`, `retrieval`, and `subworkflow`
+  (referencing *other* workflows) need this project's tools / knowledge base / sibling workflows,
+  which aren't part of this export — offline they degrade (a "tool not available" result / empty
+  retrieval / no-op subworkflow).
 - **HITL** (`human_input` / `handoff`) needs a checkpointer to pause/resume: `langgraph dev`
   provides thread persistence; running `python graph.py` uses an in-memory saver (see the file).
+- **Not reproduced:** per-node retry / `error_policy` / fanout isolation and node output/input
+  schema enforcement are ROS runtime features and are not applied in this exported graph.
 - **Versions:** install into a clean virtualenv and let the `ros` install pin `langgraph`/`langchain`
   (this project was exported against a specific langgraph version). Mixing a global env can conflict.
-- **Secrets:** `executable.json` is the workflow definition verbatim — it should carry secret
-  *references*, not raw keys. Review it before sharing the bundle.
-- The graph is regenerated from `executable.json`; edit that (or re-export) to change the workflow.
+- **Secrets:** `executable.json` (bundled for `subworkflow` refs + as the re-transpile source) is the
+  workflow definition verbatim — it should carry secret *references*, not raw keys. Review before sharing.
+- **Edit `graph.py` directly** — it's a normal LangGraph `StateGraph`. Or change the workflow in the
+  builder and re-export.
 '''
 
 _LANGGRAPH_JSON = {
@@ -159,7 +116,7 @@ def build_files(workflow_id: str, name: str | None, executable: dict) -> dict[st
     langgraph_json = dict(_LANGGRAPH_JSON, graphs={key: "./graph.py:make_graph"})
     return {
         "langgraph.json": json.dumps(langgraph_json, indent=2) + "\n",
-        "graph.py": _GRAPH_PY.replace("__WORKFLOW_NAME__", display),
+        "graph.py": transpile(executable or {}, name=display),
         "executable.json": json.dumps(executable or {}, indent=2, sort_keys=False) + "\n",
         "requirements.txt": _REQUIREMENTS,
         ".env.example": _ENV_EXAMPLE,

@@ -40,7 +40,7 @@ def test_build_files_has_expected_bundle():
     lg = json.loads(files["langgraph.json"])
     assert lg["env"] == ".env"
     assert lg["graphs"] == {"my_flow": "./graph.py:make_graph"}  # name sanitized to a valid key
-    assert "make_graph" in files["graph.py"] and "compile_workflow" in files["graph.py"]
+    assert "make_graph" in files["graph.py"] and "StateGraph" in files["graph.py"]
     compile(files["graph.py"], "<graph.py>", "exec")  # generated file is valid Python
     assert json.loads(files["executable.json"]) == _EXECUTABLE
 
