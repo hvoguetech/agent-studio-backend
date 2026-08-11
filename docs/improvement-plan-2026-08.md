@@ -287,6 +287,25 @@ Prompted by a competitive read of usenaive.ai. Focused, high-leverage parity ite
   (embeddings/tools) summed into the monthly cap; unknown-model `$0` pricing blind spot; hash-chain
   audit (tamper-evidence, also WS5 5d); optional Supabase-Auth (OIDC/GoTrue) `ROS_AUTH_BACKEND` seam.
 
+## WS10 — Secure multi-tenant execution (isolating data plane)
+
+Required IF hosting **untrusted third-party agents/code at multi-tenant scale**: process isolation
+on a shared worker is insufficient, and app-level SSRF + RLS-via-GUC are not boundaries once
+untrusted code runs in-process. Design:
+[`docs/design/secure-multitenant-execution.md`](design/secure-multitenant-execution.md).
+
+- ☐ **Phase 0 — cheap hardening (no new infra).** Force the isolating code executor (Freestyle) for
+  untrusted code; network-level egress allow-list; per-tenant concurrency caps; ensure the exec path
+  never carries the master key; code tools off by default for untrusted tenants.
+- ☐ **Phase 1 — `sandbox` execution backend.** Whole-run-per-microVM (recommend **E2B**) via
+  `ros.execution_backends`; ephemeral-VM + checkpointer lifecycle; short-lived run token +
+  tenant-scoped callback API for state/secrets/tools (sandbox holds NO db/master-key); egress
+  firewall; CPU/mem/time caps. Behind a per-tenant flag. Trusted `local` backend stays the default.
+- ☐ **Phase 2 — egress credential proxy** (handles, not raw keys) + warm pool + fair-scheduling +
+  per-tenant quotas in governance.
+- ☐ **Phase 3 — enterprise:** dedicated/BYO VPC/region isolation, self-host Firecracker option,
+  hash-chain audit.
+
 ---
 
 ## Sequencing & checkpoints
