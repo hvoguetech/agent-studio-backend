@@ -58,6 +58,10 @@ class CompileContext:
     # Model config.
     default_model: str | None = None
     provider_credentials: dict[str, str] = field(default_factory=dict)
+    # Project model aliases: logical name -> concrete model ref (e.g. {"fast": "openai:gpt-4.1-nano",
+    # "smart": "anthropic:claude-sonnet-4-6"}). A node's `model` may reference an alias; resolve_model
+    # expands it (one level) so models can be swapped centrally without editing every workflow.
+    model_aliases: dict[str, str] = field(default_factory=dict)
 
     # The end user this run acts for (identity, Feature 3). Generic app-defined shape
     # ({id, roles?, attributes?, entitlements?, …}); surfaced to agent prompts (awareness)

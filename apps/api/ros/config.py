@@ -302,6 +302,12 @@ class Settings(BaseSettings):
     # the first call of every run). No cost/token impact - purely a transport optimization that
     # also lowers server load (fewer handshakes/sockets). Off => each model builds its own client.
     llm_http_keepalive: bool = True
+    # OpenRouter gateway (model routing across 300+ models). A model ref `openrouter:<vendor/model>`
+    # (e.g. openrouter:anthropic/claude-sonnet-4.6) resolves to an OpenAI-compatible client pointed
+    # at OpenRouter, giving breadth + OpenRouter's own provider routing/fallback. Key from this env
+    # var or a project `provider_credentials.openrouter` secret. Empty => openrouter refs error.
+    openrouter_api_key: str | None = None
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
     # Auto-attach AnthropicPromptCachingMiddleware to Anthropic-model agents (caches the
     # static system-prompt/tools prefix; large multi-turn cost saving). Off => opt-in only.
     default_anthropic_prompt_caching: bool = True

@@ -84,12 +84,15 @@ def _month_start_utc() -> datetime:
 
 
 async def enforce_project_budget(
-    session, tenant_id: str, project_id: str, *, model: str | None = None
+    session, tenant_id: str, project_id: str, *, model: str | None = None,
+    executable: dict | None = None,
 ) -> None:
-    """Raise if `model` isn't allowed or the project's monthly USD cap would be exceeded.
+    """Raise if a model isn't allowed or the project's monthly USD cap would be exceeded.
 
     No-op when the project configures neither an allow-list nor a monthly cap. Loads the project
-    by (tenant, id); a missing project is treated as unconfigured (no enforcement)."""
+    by (tenant, id); a missing project is treated as unconfigured (no enforcement). When
+    `executable` is given, EVERY per-node model in the workflow is checked against the allow-list
+    at admission (not just the project default), so a run can't smuggle in a disallowed model."""
     project = (
         await session.execute(
             select(Project).where(Project.tenant_id == tenant_id, Project.id == project_id)
@@ -100,11 +103,18 @@ async def enforce_project_budget(
     cfg = project.config or {}
 
     allowed = cfg.get("allowed_models") or []
-    # Validate the run's model (or the project default) against the allow-list. Per-node models
-    # inside a workflow should additionally be validated at publish time (workflows router).
+    # Validate the run's model (or the project default) against the allow-list.
     candidate = model or cfg.get("default_model")
     if allowed and candidate and candidate not in allowed:
         raise ModelNotAllowed(f"model {candidate!r} is not in this project's allowed_models")
+    # Validate every per-node model in the workflow too (closes the admission gap where only the
+    # project default was checked; per-node models were previously gated only at publish).
+    if allowed and executable is not None:
+        bad = disallowed_workflow_models(cfg, executable)
+        if bad:
+            raise ModelNotAllowed(
+                f"workflow uses models not in this project's allowed_models: {', '.join(bad)}"
+            )
 
     budgets = cfg.get("budgets") or {}
     cap = budgets.get("monthly_usd_cap")

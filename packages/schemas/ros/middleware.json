@@ -186,6 +186,7 @@
       "type": "object",
       "properties": {
         "max_usd_per_thread": { "type": "number" },
+        "max_usd_per_run": { "type": "number" },
         "max_tokens_per_run": { "type": "integer" },
         "on_exceed": { "type": "string", "enum": ["end", "error"], "default": "end" }
       },

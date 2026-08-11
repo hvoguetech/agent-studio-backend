@@ -371,6 +371,9 @@ class _TenantBudgetState(AgentState):
     # Thread-scoped USD tally: a normal (checkpointed) channel, so it accumulates across the
     # runs of a thread - matching `max_usd_per_thread`.
     _ros_thread_cost_usd: NotRequired[Annotated[float, PrivateStateAttr]]
+    # Run-scoped USD tally: UntrackedValue (not checkpointed), so it resets each run - matching
+    # `max_usd_per_run` (the project's per-run hard cap, auto-injected in services/runtime.py).
+    _ros_run_cost_usd: NotRequired[Annotated[float, UntrackedValue, PrivateStateAttr]]
 
 
 class _TenantBudgetMiddleware(AgentMiddleware):
@@ -383,10 +386,12 @@ class _TenantBudgetMiddleware(AgentMiddleware):
 
     state_schema = _TenantBudgetState  # type: ignore[assignment]
 
-    def __init__(self, max_tokens_per_run: int | None, max_usd_per_thread: float | None, on_exceed: str = "end"):
+    def __init__(self, max_tokens_per_run: int | None, max_usd_per_thread: float | None,
+                 on_exceed: str = "end", max_usd_per_run: float | None = None):
         super().__init__()
         self._max_tokens = max_tokens_per_run
         self._max_usd = max_usd_per_thread
+        self._max_usd_per_run = max_usd_per_run
         self._on_exceed = on_exceed
 
     def _exceeded(self, reason: str):
@@ -400,8 +405,11 @@ class _TenantBudgetMiddleware(AgentMiddleware):
     def before_model(self, state, runtime=None):  # type: ignore[no-untyped-def]
         run_tokens = state.get("_ros_run_tokens", 0) or 0
         thread_cost = state.get("_ros_thread_cost_usd", 0.0) or 0.0
+        run_cost = state.get("_ros_run_cost_usd", 0.0) or 0.0
         if self._max_tokens and run_tokens >= self._max_tokens:
             return self._exceeded(f"{run_tokens} >= {self._max_tokens} tokens (this run)")
+        if self._max_usd_per_run and run_cost >= self._max_usd_per_run:
+            return self._exceeded(f"${run_cost:.4f} >= ${self._max_usd_per_run} (this run)")
         if self._max_usd and thread_cost >= self._max_usd:
             return self._exceeded(f"${thread_cost:.4f} >= ${self._max_usd} (this thread)")
         return None
@@ -420,7 +428,7 @@ class _TenantBudgetMiddleware(AgentMiddleware):
         out_tok = usage.get("output_tokens", 0) or 0
         total = usage.get("total_tokens", in_tok + out_tok) or 0
         update: dict[str, Any] = {"_ros_run_tokens": (state.get("_ros_run_tokens", 0) or 0) + total}
-        if self._max_usd:
+        if self._max_usd or self._max_usd_per_run:
             from ros.tracing.pricing import price
 
             rm = getattr(last, "response_metadata", None) or {}
@@ -431,7 +439,10 @@ class _TenantBudgetMiddleware(AgentMiddleware):
                 cache_read_tokens=details.get("cache_read", 0) or 0,
                 cache_creation_tokens=details.get("cache_creation", 0) or 0,
             )
-            update["_ros_thread_cost_usd"] = (state.get("_ros_thread_cost_usd", 0.0) or 0.0) + cost
+            if self._max_usd:
+                update["_ros_thread_cost_usd"] = (state.get("_ros_thread_cost_usd", 0.0) or 0.0) + cost
+            if self._max_usd_per_run:
+                update["_ros_run_cost_usd"] = (state.get("_ros_run_cost_usd", 0.0) or 0.0) + cost
         return update
 
 
@@ -439,6 +450,7 @@ def _tenant_budget(c: dict, ctx: CompileContext) -> AgentMiddleware:
     return _TenantBudgetMiddleware(
         max_tokens_per_run=c.get("max_tokens_per_run"),
         max_usd_per_thread=c.get("max_usd_per_thread"),
+        max_usd_per_run=c.get("max_usd_per_run"),
         on_exceed=c.get("on_exceed", "end"),
     )
 

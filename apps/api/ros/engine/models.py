@@ -87,6 +87,13 @@ def resolve_model(
     if not model_ref:
         model_ref = (getattr(ctx, "default_model", None) if ctx else None) or settings.default_model
 
+    # Project model alias (one level): "fast"/"smart"/... -> a concrete ref. Lets workflows use
+    # logical names and swap the underlying model centrally (ctx.model_aliases from project config).
+    if isinstance(model_ref, str) and ctx is not None:
+        aliases = getattr(ctx, "model_aliases", None) or {}
+        if model_ref in aliases and aliases[model_ref]:
+            model_ref = aliases[model_ref]
+
     if isinstance(model_ref, str) and model_ref.startswith("fake"):
         # "fake" or "fake:<text>"
         _, _, reply = model_ref.partition(":")
@@ -102,6 +109,23 @@ def resolve_model(
     # assembler into ctx.provider_credentials). Falls back to the provider's env var.
     provider = model_ref.split(":", 1)[0] if ":" in model_ref else None
     creds = getattr(ctx, "provider_credentials", None) or {}
+
+    # OpenRouter gateway: `openrouter:<vendor/model>` -> an OpenAI-compatible client pointed at
+    # OpenRouter (300+ models + OpenRouter's own routing/fallback). Key from the project's
+    # `provider_credentials.openrouter` or ROS_OPENROUTER_API_KEY.
+    if provider == "openrouter":
+        _, _, or_model = model_ref.partition(":")
+        or_key = creds.get("openrouter") or settings.openrouter_api_key
+        clean.setdefault("base_url", settings.openrouter_base_url)
+        if or_key:
+            clean.setdefault("api_key", or_key)
+        clean.setdefault("stream_usage", True)
+        if settings.llm_http_keepalive and "http_async_client" not in clean:
+            from ros.util.http import shared_llm_async_client
+
+            clean["http_async_client"] = shared_llm_async_client()
+        return init_chat_model(or_model, model_provider="openai", **clean)
+
     key = creds.get(provider) if provider else None
     if key:
         param = "google_api_key" if provider in ("google_genai", "google") else "api_key"

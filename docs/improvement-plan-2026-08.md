@@ -267,6 +267,26 @@ runtime enforcement defaults to observe/warn.
   gating) already exists for the code *tool*; needs a node factory + schema + form. Not yet filed.
 - ☐ **Later.** Array-item/`$ref`/complex-JMESPath type reconciliation in the field-type check.
 
+## WS9 — Agent-infra parity (model routing · governance · Supabase)
+
+Prompted by a competitive read of usenaive.ai. Focused, high-leverage parity items.
+
+- ☑ **Model routing.** `openrouter:<vendor/model>` gateway ref → OpenAI-compatible client at
+  OpenRouter (300+ models + OpenRouter's own routing/fallback), key from `ROS_OPENROUTER_API_KEY`
+  or project `provider_credentials.openrouter`. Project **model aliases** (`fast`/`smart`/… →
+  concrete refs) resolved in `resolve_model` (`CompileContext.model_aliases`). Exception-triggered
+  cross-model fallback already exists via the `model_fallback` middleware.
+- ☑ **Governance hard-caps.** Admission now checks **every per-node model** against `allowed_models`
+  (`enforce_project_budget(..., executable=)`), not just the project default. A project
+  `budgets.max_usd_per_run` (or `max_tokens_per_run`) is **auto-injected** as a `tenant_budget`
+  middleware so the per-run cost cap is a **hard, pre-action (before_model) stop** on every agent by
+  default. (`_TenantBudgetMiddleware` gained a run-scoped `max_usd_per_run` channel.)
+- ☑ **Supabase data layer.** Postgres + pgvector + S3-compatible Storage run via env only — see
+  [`docs/deploy-supabase.md`](deploy-supabase.md) (incl. the pooler/prepared-statement caveat).
+- ☐ **Later.** Latency/rate-limit-aware routing (not just exception fallback); non-run spend
+  (embeddings/tools) summed into the monthly cap; unknown-model `$0` pricing blind spot; hash-chain
+  audit (tamper-evidence, also WS5 5d); optional Supabase-Auth (OIDC/GoTrue) `ROS_AUTH_BACKEND` seam.
+
 ---
 
 ## Sequencing & checkpoints

@@ -75,6 +75,19 @@ async def build_compile_context(
     else:
         default_model = default_model_for_credentials(resolved_keys) or explicit or settings.default_model
 
+    # Auto-enforce the project's per-run budget as a HARD, pre-action (before_model) cap on EVERY
+    # agent node, not just when a builder opts the tenant_budget middleware in per node (governance
+    # hard-cap). Prepended to the project default-middleware stack; skipped if one is already set.
+    default_mw = list(pconfig.get("default_middleware", []) or [])
+    budgets = pconfig.get("budgets") or {}
+    cap_cfg: dict = {}
+    if budgets.get("max_usd_per_run"):
+        cap_cfg["max_usd_per_run"] = budgets["max_usd_per_run"]
+    if budgets.get("max_tokens_per_run"):
+        cap_cfg["max_tokens_per_run"] = budgets["max_tokens_per_run"]
+    if cap_cfg and not any(isinstance(e, dict) and e.get("type") == "tenant_budget" for e in default_mw):
+        default_mw = [{"type": "tenant_budget", "config": {**cap_cfg, "on_exceed": "end"}}, *default_mw]
+
     ctx = CompileContext(
         tenant_id=tenant_id,
         project_id=project_id,
@@ -82,9 +95,10 @@ async def build_compile_context(
         store=store,
         auth_resolver=AuthResolver(secret_store),
         default_model=default_model,
-        project_default_mw=pconfig.get("default_middleware", []) or [],
+        project_default_mw=default_mw,
     )
     ctx.provider_credentials = resolved_keys
+    ctx.model_aliases = pconfig.get("model_aliases") or {}
     ctx.egress_policy = EgressPolicy.from_settings(pconfig.get("egress"))
     ctx.end_user = end_user or None
     # Ephemeral per-run injected context (never persisted, never prompted); consumed by tools

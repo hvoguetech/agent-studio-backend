@@ -471,17 +471,18 @@ class RunService:
         # wraps this in run_admission for atomic burst-safety. No-op unless a quota is configured.
         from ros.services.quota import check_run_quota
         await check_run_quota(session, tenant_id)
-        # Project governance: monthly USD cap + allowed_models allow-list (no-op unless the
-        # project configures them). Raises BudgetExceeded / ModelNotAllowed, mapped to HTTP by
-        # the admission routers. Model is validated per-node at publish; admission checks spend.
-        from ros.services.budget import enforce_project_budget
-        await enforce_project_budget(session, tenant_id, project_id)
 
         wf = (
             await session.execute(
                 select(Workflow).where(Workflow.tenant_id == tenant_id, Workflow.id == workflow_id)
             )
         ).scalar_one()
+
+        # Project governance: allowed_models allow-list (every per-node model, via `executable`) +
+        # the monthly USD cap. No-op unless the project configures them. Raises BudgetExceeded /
+        # ModelNotAllowed, mapped to HTTP by the admission routers.
+        from ros.services.budget import enforce_project_budget
+        await enforce_project_budget(session, tenant_id, project_id, executable=wf.executable)
 
         # Reuse an existing thread when given: the checkpointer already holds the
         # conversation, so callers send ONLY the new message instead of replaying the
