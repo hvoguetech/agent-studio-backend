@@ -297,7 +297,7 @@ untrusted code runs in-process. Design:
 - ☐ **Phase 0 — cheap hardening (no new infra).** Force the isolating code executor (Freestyle) for
   untrusted code; network-level egress allow-list; per-tenant concurrency caps; ensure the exec path
   never carries the master key; code tools off by default for untrusted tenants.
-- ☐ **Phase 1 — `sandbox` execution backend.** Whole-run-per-microVM (recommend **E2B**) via
+- ☐ **Phase 1 — `sandbox` execution backend.** Whole-run-per-microVM (**provider: E2B, selected**) via
   `ros.execution_backends`; ephemeral-VM + checkpointer lifecycle; short-lived run token +
   tenant-scoped callback API for state/secrets/tools (sandbox holds NO db/master-key); egress
   firewall; CPU/mem/time caps. Behind a per-tenant flag. Trusted `local` backend stays the default.

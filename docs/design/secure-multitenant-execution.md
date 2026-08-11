@@ -83,9 +83,10 @@ Tie the sandbox to **active compute**, not wall-clock (a run may pause on HITL f
 | **Freestyle** | Linux VMs (agent workspaces) | medium | unknown (verify) | low | Works, but agent-workspace-oriented; billing/persistence undocumented. |
 | **Self-host Firecracker / gVisor** | strongest / cheapest at scale | slow | lowest | **high** | Bare-metal + orchestration; only worth it at large scale. |
 
-**Recommendation:** start with a **managed microVM provider (E2B)** for the `sandbox` backend to get
-hard isolation fast; keep the door open to self-hosted Firecracker later if volume justifies the ops.
-Freestyle remains the **code-exec** inner tier (already integrated).
+**Decision (2026-08):** **E2B** is the selected provider for the Phase-1 `sandbox` backend (managed
+Firecracker microVMs, purpose-built for agent/code sandboxes — fastest path to hard isolation).
+Keep the door open to self-hosted Firecracker later if volume justifies the ops. Freestyle remains
+the **code-exec** inner tier (already integrated). **Status: spec only — not scheduled for build yet.**
 
 ## Phasing
 - **Phase 0 — cheap hardening (do first, no new infra).** Enforce that runs with untrusted
