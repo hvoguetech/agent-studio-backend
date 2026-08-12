@@ -283,6 +283,12 @@ class Settings(BaseSettings):
     freestyle_api_key: str | None = None
     freestyle_base_url: str = "https://api.freestyle.sh"
     freestyle_run_path: str = "/execute/v1/run"
+    # Run-level Freestyle sandbox (ROS_EXECUTION_BACKEND=freestyle): a control service that
+    # provisions a VM per run and boots the ros runtime (`python -m ros.runtime run`) inside it.
+    # Distinct from freestyle_api_key above (one-shot code-tool exec). Disabled when unset -> the
+    # freestyle backend falls back to the local inline/arq path (dev/tests keep working).
+    freestyle_service_url: str = ""
+    freestyle_service_secret: str = ""
     # External MCP servers reached via the `stdio` transport launch a LOCAL PROCESS
     # (command + args) - i.e. arbitrary command execution on the API host, like an
     # unsandboxed code tool. OFF by default; enable only on a trusted single-tenant install.

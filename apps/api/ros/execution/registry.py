@@ -33,6 +33,11 @@ def _resolve(name: str) -> ExecutionBackend:
 
         log.info("execution backend: local")
         return LocalBackend()
+    if key == "freestyle":
+        from ros.execution.freestyle import FreestyleBackend  # run-level Freestyle sandbox
+
+        log.info("execution backend: freestyle")
+        return FreestyleBackend()
 
     # Plugin backends resolve from the entry-point group; ONLY the selected one is imported.
     import importlib.metadata as importlib_metadata
