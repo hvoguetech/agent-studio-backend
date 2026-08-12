@@ -219,3 +219,70 @@ async def build_compile_context(
             wf_map.setdefault(w.name, w.executable)
     ctx.workflows = wf_map
     return ctx
+
+
+def build_compile_context_from_manifest(
+    manifest: dict, *, checkpointer=None, store=None,
+    end_user: dict | None = None, run_context: dict | None = None,
+) -> CompileContext:
+    """Rebuild a CompileContext from a RunManifest (services/runtime_manifest.py) instead of the DB —
+    the runtime-side twin of build_compile_context for the standalone ros runtime. Materializes the
+    same tools/components/agents/workflows from the manifest's serialized configs; provider keys, the
+    default model, model aliases, and the tenant_budget hard-cap middleware all arrive precomputed in
+    the manifest. Sync (no DB/await).
+
+    Tool auth secrets resolve lazily at call time via an InMemorySecretStore backed by the manifest's
+    run-scoped secrets (no master DB / decryption key on the runtime). MCP tools are deferred."""
+    from ros.runtime.secret_source import InMemorySecretStore
+
+    ctx = CompileContext(
+        tenant_id=manifest["tenant_id"],
+        project_id=manifest["project_id"],
+        checkpointer=checkpointer,
+        store=store,
+        auth_resolver=AuthResolver(InMemorySecretStore(manifest.get("secrets") or {})),
+        default_model=manifest.get("default_model") or settings.default_model,
+        project_default_mw=manifest.get("default_middleware") or [],
+    )
+    ctx.provider_credentials = manifest.get("provider_credentials") or {}
+    ctx.model_aliases = manifest.get("model_aliases") or {}
+    ctx.egress_policy = EgressPolicy.from_settings(manifest.get("egress"))
+    ctx.end_user = end_user or None
+    ctx.run_context = run_context or {}
+
+    registry: dict[str, object] = {}
+    specs: dict[str, dict] = {}
+    display_names: dict[str, str] = {}
+    for t in manifest.get("tools") or []:
+        cfg = dict(t.get("config") or {})
+        cfg.setdefault("name", t["name"])
+        cfg.setdefault("kind", t["kind"])
+        display_names[t["name"]] = (cfg.get("display_name") or "").strip() or t["name"]
+        try:
+            tool = materialize_tool(cfg, ctx)
+            if tool is None:  # e.g. mcp kind — loaded elsewhere
+                continue
+            registry[t["id"]] = tool
+            specs[t["id"]] = {"kind": t["kind"], "config": cfg, "tool": tool}
+        except Exception as e:  # noqa: BLE001 - skip a broken tool; don't abort the run
+            log.warning("manifest: skipping tool %s (%s): %s", t.get("name"), t.get("kind"), e)
+    ctx.tool_registry = registry
+    ctx.tool_specs = specs
+    ctx.toolset_members = manifest.get("toolset_members") or {}
+
+    from ros.tools.components import build_component_tool
+
+    comp_registry: dict[str, object] = {}
+    for c in manifest.get("components") or []:
+        display_names[c["name"]] = (c.get("title") or "").strip() or c["name"]
+        try:
+            comp_registry[c["id"]] = build_component_tool(c, ctx)
+        except Exception as e:  # noqa: BLE001
+            log.warning("manifest: skipping component %s: %s", c.get("name"), e)
+    ctx.component_registry = comp_registry
+    ctx.tool_display_names = display_names
+
+    ctx.mcp_tools_by_client = {}  # runtime-side MCP connect is a follow-up
+    ctx.agent_presets = manifest.get("agent_presets") or {}
+    ctx.workflows = manifest.get("workflows") or {}
+    return ctx
