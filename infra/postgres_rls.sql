@@ -20,6 +20,7 @@ BEGIN
     'users','projects','workflows','tools','agents','auth_providers','secrets',
     'kb_sources','qa_pairs','mcp_clients','threads','runs','traces','spans',
     'triggers','channels','handoff_requests','datasets','memories',
+    'provisioned_backends',
     'entity_versions','eval_runs','eval_results',
     'api_keys','project_members','user_security'
   ]

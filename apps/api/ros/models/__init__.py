@@ -16,6 +16,7 @@ from ros.models.entities import (
     ModelPrice,
     OAuthClient,
     Project,
+    ProvisionedBackend,
     QaPair,
     Run,
     Secret,
@@ -39,5 +40,5 @@ __all__ = [
     "Tenant", "User", "Project", "Workflow", "Thread", "Run", "Trace", "Span",
     "Tool", "ToolSet", "ToolSetMember", "AuthProvider", "Secret", "McpClient", "Agent", "KbSource", "QaPair",
     "AuditLog", "Trigger", "Channel", "Component", "HandoffRequest", "Dataset", "ModelPrice", "Memory",
-    "EntityVersion", "EvalRun", "EvalResult", "OAuthClient", "Artifact",
+    "EntityVersion", "EvalRun", "EvalResult", "OAuthClient", "Artifact", "ProvisionedBackend",
 ]

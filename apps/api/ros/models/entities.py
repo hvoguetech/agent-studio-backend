@@ -181,6 +181,26 @@ class Secret(PkTimestamp, Base):
     last_used_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
 
+class ProvisionedBackend(PkTimestamp, Base):
+    """A managed backend (Supabase project / Railway service / Redis queue) provisioned for an
+    agent/project at runtime. Records the external provider resource (`project_ref`) + the
+    `secret://` refs under which its credentials are stored — never the plaintext creds. Scoped per
+    tenant+project, optionally per agent (`agent_id`). See services/backend_provisioning.py."""
+
+    __tablename__ = "provisioned_backends"
+    tenant_id: Mapped[str] = mapped_column(String(36), index=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    agent_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+    provider: Mapped[str] = mapped_column(String(30), default="supabase")  # supabase|railway|queue
+    project_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)  # provider resource id
+    status: Mapped[str] = mapped_column(String(20), default="provisioning")  # provisioning|active|failed|deleted
+    region: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    endpoint_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    secret_refs: Mapped[dict] = mapped_column(JSON, default=dict)  # {database_url, service_role_key, ...} -> secret://…
+    config: Mapped[dict] = mapped_column(JSON, default=dict)  # provisioned-env shape + per-item results
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)  # failure detail when status=failed
+
+
 class KbSource(PkTimestamp, Base):
     __tablename__ = "kb_sources"
     tenant_id: Mapped[str] = mapped_column(String(36), index=True)

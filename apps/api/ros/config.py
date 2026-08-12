@@ -177,6 +177,17 @@ class Settings(BaseSettings):
     # downtime: promote a new primary, list the old key here, lazily re-encrypt, then drop it. (A/C1)
     secret_keys_fallback: Annotated[list[str], NoDecode] = []
 
+    # --- Managed-backend provisioning (Supabase / Railway / Queue; services/backend_provisioning.py) ---
+    # Provision an isolated managed backend for an agent at runtime. Each provider is disabled when
+    # its token is empty. Keep tokens secret; prefer a secret manager over a committed .env.
+    supabase_management_token: str = ""
+    supabase_default_org_id: str | None = None
+    supabase_default_region: str = "us-east-1"
+    supabase_provision_timeout_s: int = 300
+    supabase_poll_interval_s: int = 5
+    railway_api_token: str = ""
+    railway_workspace_id: str | None = None
+
     # --- Platform auth (JWT) ---
     jwt_secret: str = "dev-insecure-change-me"
     # Previously-active signing secrets, still ACCEPTED for verification (not for minting),
