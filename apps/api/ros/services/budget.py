@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 
-from ros.models import Project, Run
+from ros.models import Project, ProvisionedBackend, Run
 
 
 def collect_workflow_models(executable: dict | None) -> set[str]:
@@ -146,3 +146,40 @@ async def enforce_project_budget(
             f"project monthly budget reached (${float(spent):.2f} + ${reserve:.2f} reserved "
             f">= ${cap:.2f})"
         )
+
+
+class ProvisionNotAllowed(BudgetError):
+    """Provisioning a new managed backend would exceed the project's max_backends cap."""
+
+
+async def enforce_provision_admission(session, tenant_id: str, project_id: str) -> None:
+    """Raise ProvisionNotAllowed if the project is at/over its managed-backend cap. Gates
+    agent/operator-initiated provisioning (services/backend_provisioning.py) the same way
+    enforce_project_budget gates run spend. No-op unless `project.config.budgets.max_backends` is
+    set. Counts the project's non-deleted ProvisionedBackend rows."""
+    project = (
+        await session.execute(
+            select(Project).where(Project.tenant_id == tenant_id, Project.id == project_id)
+        )
+    ).scalar_one_or_none()
+    if project is None:
+        return
+    budgets = (project.config or {}).get("budgets") or {}
+    raw = budgets.get("max_backends")
+    if raw is None:
+        return
+    try:
+        cap = int(raw)
+    except (TypeError, ValueError):
+        return
+    count = (
+        await session.execute(
+            select(func.count()).select_from(ProvisionedBackend).where(
+                ProvisionedBackend.tenant_id == tenant_id,
+                ProvisionedBackend.project_id == project_id,
+                ProvisionedBackend.status != "deleted",
+            )
+        )
+    ).scalar() or 0
+    if count >= cap:
+        raise ProvisionNotAllowed(f"project managed-backend cap reached ({count} >= {cap})")

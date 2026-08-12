@@ -71,6 +71,9 @@ async def provision_resource(
     provider = get_provider(kind)  # raises ProvisionError for an unknown kind
     if not provider.is_enabled():
         raise ProvisionError(f"{kind} provisioning not configured")
+    # Per-project managed-backend cap (no-op unless project.config.budgets.max_backends is set).
+    from ros.services.budget import enforce_provision_admission
+    await enforce_provision_admission(session, tenant_id, project_id)
 
     display = name or (f"agent-{agent_id[:8]}" if agent_id else f"proj-{project_id[:8]}")
     outcome = await provider.provision(name=display, spec=spec)
