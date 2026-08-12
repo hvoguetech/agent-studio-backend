@@ -70,6 +70,10 @@ def get_provider(kind: str) -> ResourceProvider:
         from ros.services.providers.railway_postgres import RailwayPostgresProvider
 
         return RailwayPostgresProvider()
+    if k in ("railway-storage", "railway_storage", "storage"):
+        from ros.services.providers.railway_storage import RailwayStorageProvider
+
+        return RailwayStorageProvider()
     if k == "queue":
         from ros.services.providers.queue import QueueProvider
 
@@ -87,9 +91,12 @@ SECRET_ENV_VARS: dict[tuple[str, str], str] = {
     ("supabase", "service_role_key"): "SUPABASE_SERVICE_ROLE_KEY",
     ("supabase", "anon_key"): "SUPABASE_ANON_KEY",
     ("railway-postgres", "database_url"): "DATABASE_URL",  # Railway-only DB
+    ("railway-storage", "s3_access_key_id"): "S3_ACCESS_KEY_ID",
+    ("railway-storage", "s3_secret_access_key"): "S3_SECRET_ACCESS_KEY",
     ("queue", "redis_url"): "REDIS_URL",  # a connection URL with creds -> stored as a secret ref
 }
 ENDPOINT_ENV_VARS: dict[str, str] = {
     "supabase": "SUPABASE_URL",
     "railway": "SERVICE_URL",
+    "railway-storage": "S3_ENDPOINT",
 }

@@ -67,7 +67,7 @@ async def provision_resource(
     + provider client-safe extras}. Secret values (service keys, DB URLs) live only as `secret://`
     refs, never in the handle."""
     spec = spec or {}
-    kind = (kind or spec.get("provider") or "supabase").lower()
+    kind = (kind or spec.get("provider") or "railway-postgres").lower()
     provider = get_provider(kind)  # raises ProvisionError for an unknown kind
     if not provider.is_enabled():
         raise ProvisionError(f"{kind} provisioning not configured")
@@ -122,11 +122,11 @@ async def provision_backend(
     session: AsyncSession, tenant_id: str, project_id: str,
     *, agent_id: str | None = None, spec: dict | None = None, name: str | None = None,
 ) -> dict:
-    """Supabase-kind convenience wrapper (kind is taken from spec.provider, default supabase)."""
+    """Convenience wrapper: kind is taken from spec.provider, default 'railway-postgres'."""
     spec = spec or {}
     return await provision_resource(
         session, tenant_id, project_id, agent_id=agent_id,
-        kind=(spec.get("provider") or "supabase"), spec=spec, name=name,
+        kind=(spec.get("provider") or "railway-postgres"), spec=spec, name=name,
     )
 
 

@@ -86,7 +86,7 @@ async def test_provision_rolls_back_external_project_on_failure(monkeypatch):
 
     async with SessionLocal() as s:
         with pytest.raises(bp.ProvisionError):
-            await bp.provision_backend(s, "t_prov2", "p_prov2", agent_id="a2", spec={})
+            await bp.provision_backend(s, "t_prov2", "p_prov2", agent_id="a2", spec={"provider": "supabase"})
 
     assert deletes == ["refABC"]  # AC1: the created project is torn down
 
@@ -105,7 +105,7 @@ async def test_provision_disabled_without_token(monkeypatch):
     monkeypatch.setattr(settings, "supabase_management_token", "")
     async with SessionLocal() as s:
         with pytest.raises(bp.ProvisionError, match="not configured"):
-            await bp.provision_backend(s, "t_prov3", "p_prov3", spec={})
+            await bp.provision_backend(s, "t_prov3", "p_prov3", spec={"provider": "supabase"})
 
 
 async def test_provision_rejects_unknown_provider(monkeypatch):
