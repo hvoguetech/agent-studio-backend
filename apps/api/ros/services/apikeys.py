@@ -42,15 +42,20 @@ class ApiKeyService:
     async def create(
         session, *, tenant_id: str, name: str, role: str = "editor",
         created_by: str | None = None, ttl_days: int | None = None,
+        project_id: str | None = None, capabilities: list[str] | None = None,
+        budget: dict | None = None,
     ) -> tuple[ApiKey, str]:
-        """Mint a key. Returns (row, plaintext). The plaintext is shown once and NOT stored."""
+        """Mint a key. Returns (row, plaintext). The plaintext is shown once and NOT stored.
+
+        A key doubles as a GOVERNED SUBJECT (agent-profile merge): `capabilities` is its default-deny
+        allow-list, `budget` its spend cap, and it owns the ProvisionedBackend rows keyed by its id."""
         if role not in ROLES:
             raise ValueError(f"unknown role {role!r}")
         plaintext = _KEY_PREFIX + _secrets.token_urlsafe(32)
         row = ApiKey(
-            tenant_id=tenant_id, name=name, role=role, created_by=created_by,
+            tenant_id=tenant_id, name=name, role=role, created_by=created_by, project_id=project_id,
             prefix=plaintext[:_PREFIX_STORE_LEN], key_hash=_hash(plaintext),
-            status="active",
+            status="active", capabilities=capabilities or [], budget=budget or {},
             expires_at=(datetime.utcnow() + timedelta(days=ttl_days)) if ttl_days else None,
         )
         session.add(row)
@@ -99,6 +104,45 @@ class ApiKeyService:
             except Exception:  # noqa: BLE001 - last_used is telemetry, never fail auth on it
                 await session.rollback()
         return row
+
+    # --- Governed-subject: capability allow-list + owned resources (agent-profile merge) ----
+    @staticmethod
+    def allows(key: ApiKey, capability: str) -> bool:
+        """Default-deny capability check for a governed-subject key ('*' allows all)."""
+        caps = key.capabilities or []
+        return "*" in caps or capability in caps
+
+    @staticmethod
+    async def runtime_env(session, key: ApiKey) -> dict[str, str]:
+        """The env the resources this key OWNS expose at runtime (ProvisionedBackend rows where
+        agent_id == key.id) — secret refs + endpoints. Empty when the key has no project scope."""
+        if not key.project_id:
+            return {}
+        from ros.services.backend_provisioning import runtime_env
+        return await runtime_env(session, key.tenant_id, key.project_id, agent_id=key.id)
+
+    @staticmethod
+    async def enforce_capacity(session, key: ApiKey) -> None:
+        """Raise ProvisionNotAllowed if the key is at/over its own `budget.max_backends` cap
+        (per-subject spend guard). No-op unless the cap is set."""
+        raw = (key.budget or {}).get("max_backends")
+        if raw is None:
+            return
+        try:
+            cap = int(raw)
+        except (TypeError, ValueError):
+            return
+        from sqlalchemy import func
+
+        from ros.models import ProvisionedBackend
+        from ros.services.budget import ProvisionNotAllowed
+        count = (await session.execute(
+            select(func.count()).select_from(ProvisionedBackend).where(
+                ProvisionedBackend.agent_id == key.id, ProvisionedBackend.status != "deleted",
+            )
+        )).scalar() or 0
+        if count >= cap:
+            raise ProvisionNotAllowed(f"key backend cap reached ({count} >= {cap})")
 
     # --- Personal access tokens (per-user, MCP-scoped) -------------------------------------
     @staticmethod

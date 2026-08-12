@@ -506,6 +506,11 @@ class ApiKey(PkTimestamp, Base):
     # A PAT is deliberately NOT a general-API principal - get_current_user only honors ros_sk_.
     user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     project_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Governed-subject fields (agent-profile merge): a capability allow-list ("*" = all) the key may
+    # act with (default-deny), and a spend cap. The resources a key OWNS are ProvisionedBackend rows
+    # where agent_id == this key's id. See services/apikeys.py.
+    capabilities: Mapped[list] = mapped_column(JSON, default=list)
+    budget: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class ProjectMember(PkTimestamp, Base):
