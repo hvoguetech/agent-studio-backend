@@ -66,6 +66,10 @@ def get_provider(kind: str) -> ResourceProvider:
         from ros.services.providers.railway import RailwayProvider
 
         return RailwayProvider()
+    if k in ("railway-postgres", "railway_postgres", "postgres"):
+        from ros.services.providers.railway_postgres import RailwayPostgresProvider
+
+        return RailwayPostgresProvider()
     if k == "queue":
         from ros.services.providers.queue import QueueProvider
 
@@ -82,6 +86,7 @@ SECRET_ENV_VARS: dict[tuple[str, str], str] = {
     ("supabase", "database_url"): "DATABASE_URL",
     ("supabase", "service_role_key"): "SUPABASE_SERVICE_ROLE_KEY",
     ("supabase", "anon_key"): "SUPABASE_ANON_KEY",
+    ("railway-postgres", "database_url"): "DATABASE_URL",  # Railway-only DB
     ("queue", "redis_url"): "REDIS_URL",  # a connection URL with creds -> stored as a secret ref
 }
 ENDPOINT_ENV_VARS: dict[str, str] = {
