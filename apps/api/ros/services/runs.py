@@ -206,7 +206,8 @@ class _RunBroker:
     """Ordered, replayable, multi-subscriber event buffer for one run episode. Frames get a
     monotonic seq (the SSE event id); subscribers replay from a Last-Event-ID then follow live."""
 
-    def __init__(self) -> None:
+    def __init__(self, run_id: str = "") -> None:
+        self.run_id = run_id
         self.seq = 0
         self.events: list[tuple[int, dict]] = []
         self.done = asyncio.Event()
@@ -220,6 +221,13 @@ class _RunBroker:
             self.events.append(item)
             for q in self._subs:
                 q.put_nowait(item)
+            seq = self.seq
+        # Mirror to the shared relay bus (A/C3) so other replicas / the run's VM can serve this
+        # run's SSE. Best-effort + no-op without redis; done outside the lock (it does network I/O).
+        if self.run_id:
+            from ros.services.run_relay import publish_frame
+
+            await publish_frame(self.run_id, seq, frame)
 
     async def finish(self) -> None:
         async with self._lock:
@@ -279,7 +287,7 @@ class _RunStreams:
                 return existing, False
             if not start:
                 return existing, False
-            broker = _RunBroker()
+            broker = _RunBroker(run_id)
             self._brokers[run_id] = broker
             task = asyncio.create_task(factory(broker))
             self._tasks[run_id] = task
@@ -590,8 +598,24 @@ class RunService:
             async for seq, frame in broker.subscribe(last_event_id):
                 yield {"id": str(seq), "event": frame["event"], "data": frame["data"]}
             return
-        # No broker in this process (terminal run past its retention window, or a run whose
-        # executor lived in a since-gone process): rebuild the terminal frame from the DB.
+        # No broker in THIS process. A still-running run is being driven elsewhere - another
+        # replica, or the run's Freestyle VM - so relay its frames off the shared bus (A/C3),
+        # replaying past `last_event_id` then following live until the terminal frame. No-op
+        # without redis, so single-process installs are unchanged. (A dead driver leaves an
+        # active status with no publisher; client-disconnect + the reaper bound that, and the
+        # VM heartbeat in the next increment tightens it.)
+        if status == "running":
+            from ros.services.run_relay import get_relay_bus, relay_frames
+
+            if get_relay_bus() is not None:
+                relayed = False
+                async for seq, frame in relay_frames(run_id, last_event_id):
+                    relayed = True
+                    yield {"id": str(seq), "event": frame["event"], "data": frame["data"]}
+                if relayed:
+                    return
+        # Terminal run (past its retention window or driven in a since-gone process), or no relay
+        # available: rebuild the terminal frame from the DB.
         async for frame in self._reattach_from_db(run_id, tenant_id, project_id, public):
             yield frame
 
