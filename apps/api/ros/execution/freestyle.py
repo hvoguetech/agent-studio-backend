@@ -41,7 +41,8 @@ class FreestyleBackend(LocalBackend):
         return {"run_id": run_id, "status": "dispatched", "backend": "freestyle", **receipt}
 
     def _mint_run_token(self, *, run_id: str, tenant_id: str, project_id: str | None) -> str:
-        """Short-lived, run-scoped token the VM presents to master to pull the run manifest.
-        LIVE-VERIFY: today this returns the static service token; wire a real scoped mint
-        (runtime:pull, run-bound, revocable) with the standalone-runtime auth follow-up."""
-        return settings.service_api_token or ""
+        """Short-lived, run-scoped token the VM presents to master to pull the run manifest
+        (scope runtime:pull, run-bound, expiring, revocable)."""
+        from ros.security import create_run_token
+
+        return create_run_token(run_id=run_id, tenant_id=tenant_id, project_id=project_id)

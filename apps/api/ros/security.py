@@ -287,6 +287,16 @@ def create_mcp_refresh_token(*, claims: dict, ttl_days: int = 30) -> str:
     return _encode(claims, timedelta(days=ttl_days), "mcp_refresh")
 
 
+def create_run_token(*, run_id: str, tenant_id: str, project_id: str | None = None, ttl_minutes: int = 60) -> str:
+    """Short-lived, run-scoped token a standalone runtime (a Freestyle VM) presents to master to pull
+    ITS RunManifest (scope `runtime:pull`). Bound to the run + tenant, expiring, and revocable by jti
+    — far tighter than the static service token. Verified with decode_token(expected_type="run")."""
+    return _encode(
+        {"sub": run_id, "tid": tenant_id, "pid": project_id, "scope": "runtime:pull"},
+        timedelta(minutes=ttl_minutes), "run",
+    )
+
+
 def decode_token(token: str, *, expected_type: str | None = None, check_revoked: bool = True) -> dict:
     # Accept the current signing key plus any configured previous keys (rotation overlap).
     keys = [settings.jwt_secret, *(settings.jwt_secret_previous or [])]

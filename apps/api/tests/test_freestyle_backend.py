@@ -21,7 +21,6 @@ def test_registry_resolves_freestyle():
 
 async def test_submit_dispatches_to_vm_when_enabled(monkeypatch):
     monkeypatch.setattr(settings, "freestyle_service_url", "http://svc")
-    monkeypatch.setattr(settings, "service_api_token", "svc-tok")
     monkeypatch.setattr(freestyle_control, "is_enabled", lambda: True)
     seen: dict = {}
 
@@ -32,7 +31,10 @@ async def test_submit_dispatches_to_vm_when_enabled(monkeypatch):
     monkeypatch.setattr(freestyle_control, "dispatch_run", fake_dispatch)
     out = await FreestyleBackend().submit(run_id="r1", tenant_id="t1", project_id="p1")
     assert out["status"] == "dispatched" and out["backend"] == "freestyle" and out["vm_id"] == "vm_9"
-    assert seen["run_id"] == "r1" and seen["run_token"] == "svc-tok"
+    # the VM is handed a REAL scoped run token (not the static service token)
+    from ros.security import decode_token
+    claims = decode_token(seen["run_token"], expected_type="run")
+    assert seen["run_id"] == "r1" and claims["sub"] == "r1" and claims["scope"] == "runtime:pull"
 
 
 async def test_submit_falls_back_to_local_when_disabled(monkeypatch):

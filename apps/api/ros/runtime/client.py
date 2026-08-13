@@ -14,11 +14,11 @@ def load_manifest_file(path: str) -> dict[str, Any]:
 
 
 async def fetch_manifest(
-    master_url: str, token: str | None, project_id: str, workflow_id: str,
+    master_url: str, token: str | None, run_id: str,
     *, client: httpx.AsyncClient | None = None,
 ) -> dict[str, Any]:
-    """GET the RunManifest from master, authenticated with the runtime token."""
-    path = f"/v1/projects/{project_id}/runtime/workflows/{workflow_id}/manifest"
+    """GET the run's RunManifest from master, authenticated with the run-scoped runtime token."""
+    path = f"/v1/runtime/runs/{run_id}/manifest"
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     own = client is None
     c = client or httpx.AsyncClient(base_url=master_url.rstrip("/"), timeout=60.0)

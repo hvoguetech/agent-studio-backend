@@ -1,17 +1,22 @@
 """Runner — compile + drive a workflow from a RunManifest (the standalone runtime's core loop).
 
 `build_graph` rebuilds the CompileContext from the manifest (no master DB) and compiles the workflow;
-`run` drives it. The checkpointer defaults to an in-process saver for offline/standalone use; in
-production the runtime points it at the injected DATABASE_URL (durable Postgres) so run state
-survives a VM restart (Part E).
+`run` drives it. In production the checkpointer points at the SHARED Postgres (ROS_CHECKPOINT_BACKEND
+=postgres → ROS_CHECKPOINT_POSTGRES_URL/ROS_DATABASE_URL), so run state is durable across a VM
+restart AND visible to master (which reads the same DB). Offline/dev falls back to an in-process saver.
 """
 
 from __future__ import annotations
 
+import logging
+from contextlib import asynccontextmanager
 from typing import Any
 
+from ros.config import settings
 from ros.engine.compiler import compile_workflow
 from ros.services.runtime import build_compile_context_from_manifest
+
+log = logging.getLogger("ros.runtime.runner")
 
 
 def build_graph(manifest: dict, *, checkpointer: Any = None, end_user: dict | None = None,
@@ -26,10 +31,38 @@ def build_graph(manifest: dict, *, checkpointer: Any = None, end_user: dict | No
     return compile_workflow(manifest["executable"], ctx)
 
 
+@asynccontextmanager
+async def _durable_checkpointer():
+    """The prod checkpointer for the VM runner: a SHARED-Postgres saver (durable + visible to master)
+    when ROS_CHECKPOINT_BACKEND=postgres; otherwise an in-process saver (offline/dev)."""
+    backend = (settings.checkpoint_backend or "").lower()
+    if backend == "postgres":
+        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+        dsn = settings.checkpoint_postgres_url or settings.database_url
+        for prefix in ("+asyncpg", "+psycopg", "+psycopg2"):
+            dsn = dsn.replace(prefix, "")
+        async with AsyncPostgresSaver.from_conn_string(dsn) as cp:
+            try:
+                await cp.setup()
+            except Exception:  # noqa: BLE001 - setup is idempotent
+                log.debug("checkpointer setup skipped", exc_info=True)
+            yield cp
+        return
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    yield InMemorySaver()
+
+
 async def run(manifest: dict, input: dict, *, thread_id: str = "run", checkpointer: Any = None,
               end_user: dict | None = None, run_context: dict | None = None) -> dict:
     """Compile the manifest's workflow and drive it to completion (or an interrupt), returning the
-    final state. Uses a checkpointer so an interrupted (HITL) run can resume on the same thread_id."""
-    graph = build_graph(manifest, checkpointer=checkpointer, end_user=end_user, run_context=run_context)
+    final state. With no explicit checkpointer, uses the durable (shared-Postgres in prod) saver so an
+    interrupted (HITL) run resumes on the same thread_id and master sees the state."""
     config = {"configurable": {"thread_id": thread_id}}
-    return await graph.ainvoke(input, config)
+    if checkpointer is not None:
+        graph = build_graph(manifest, checkpointer=checkpointer, end_user=end_user, run_context=run_context)
+        return await graph.ainvoke(input, config)
+    async with _durable_checkpointer() as cp:
+        graph = build_graph(manifest, checkpointer=cp, end_user=end_user, run_context=run_context)
+        return await graph.ainvoke(input, config)
