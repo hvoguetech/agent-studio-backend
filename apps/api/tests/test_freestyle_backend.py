@@ -68,5 +68,6 @@ async def test_dispatch_run_posts_the_runner_command(monkeypatch):
     await client.aclose()
     assert out["vm_id"] == "vm_1"
     assert captured["path"] == "/run"
-    assert "python -m ros.runtime run --run-id r" in captured["body"]["command"]
+    # Trusted-VM: the VM drives the run against the shared DB (not the manifest ainvoke path).
+    assert "python -m ros.runtime drive --run-id r --tenant t --project p" in captured["body"]["command"]
     assert captured["body"]["env"]["ROS_MASTER_URL"] == "http://master"

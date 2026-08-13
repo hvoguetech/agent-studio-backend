@@ -42,9 +42,16 @@ async def dispatch_run(
     """Ask freestyle-svc to boot the ros runtime for `run_id` on a VM. Returns a receipt
     ({vm_id, ...}); the VM drives the run and writes state to the shared Postgres. Raises on
     transport / non-2xx so the backend can fall back or surface the failure."""
+    # Trusted-VM model: the VM drives the run via `ros.runtime drive`, reading the run + workflow +
+    # resolved secrets from the SHARED DB and streaming to the relay bus (creds injected as env at
+    # provision time). master_url + the run token are still passed for the DB-less manifest-pull
+    # fallback / future stricter isolation.
+    command = f"python -m ros.runtime drive --run-id {run_id} --tenant {tenant_id}"
+    if project_id:
+        command += f" --project {project_id}"
     body = {
         "runId": run_id, "tenantId": tenant_id, "projectId": project_id,
-        "command": f"python -m ros.runtime run --run-id {run_id} --master-url {master_url} --token {run_token}",
+        "command": command,
         "env": {"ROS_MASTER_URL": master_url, "ROS_RUNTIME_TOKEN": run_token},
     }
     own = client is None
