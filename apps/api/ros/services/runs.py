@@ -340,6 +340,13 @@ async def _expand_hitl_decisions(graph, config, value):
     return value
 
 
+def _vm_dispatch_enabled() -> bool:
+    """True when the execution backend dispatches interactive runs to a per-run VM (the Freestyle
+    control service is configured). Off by default, so single-node installs drive runs locally and
+    the interactive path is unchanged."""
+    return (settings.execution_backend or "").lower() == "freestyle" and bool(settings.freestyle_service_url)
+
+
 def _client_error(public: bool, run_id: str, detail: str) -> str:
     """On the public/embed surface, hide internal error detail from the browser end user
     (hostnames, secret-resolution failures, stack messages) and log it server-side keyed by
@@ -587,6 +594,38 @@ class RunService:
         # running); otherwise we only reattach. ensure() serializes so a double-connect can't
         # start two executors - the second reattaches to the first's broker.
         start = resume or status == "queued"
+
+        # Interactive-on-VM: under a VM-dispatching backend (Freestyle), a FRESH run is driven on
+        # its own VM rather than here. Atomically claim it (queued -> running) so EXACTLY ONE caller
+        # dispatches - a second SSE client or another replica loses the claim and only relays - then
+        # submit it to the VM and relay its stream off the shared bus (A/C3). A resume stays on
+        # master: the HITL interrupt state lives in the shared checkpointer, so master continues it
+        # directly. If the dispatch itself fails, fall back to driving locally.
+        if start and not resume and _vm_dispatch_enabled():
+            if await self._claim_for_dispatch(run_id, tenant_id):
+                try:
+                    from ros.execution import get_backend
+
+                    await get_backend().submit(
+                        run_id=run_id, tenant_id=tenant_id, project_id=project_id
+                    )
+                except Exception:  # noqa: BLE001 - dispatch failed -> drive locally as a fallback
+                    log.exception("VM dispatch failed for run %s; driving locally", run_id)
+                    start = True  # the run is now 'running'; force a local episode below
+                else:
+                    async for frame in self._relay_or_reattach(
+                        run_id, tenant_id, project_id, public, last_event_id, status="running"
+                    ):
+                        yield frame
+                    return
+            else:
+                # Lost the claim: another caller/replica already dispatched this run - relay only.
+                async for frame in self._relay_or_reattach(
+                    run_id, tenant_id, project_id, public, last_event_id, status="running"
+                ):
+                    yield frame
+                return
+
         broker, _started = await run_streams.ensure(
             run_id, start=start,
             factory=lambda b: self._execute(
@@ -598,12 +637,36 @@ class RunService:
             async for seq, frame in broker.subscribe(last_event_id):
                 yield {"id": str(seq), "event": frame["event"], "data": frame["data"]}
             return
-        # No broker in THIS process. A still-running run is being driven elsewhere - another
-        # replica, or the run's Freestyle VM - so relay its frames off the shared bus (A/C3),
-        # replaying past `last_event_id` then following live until the terminal frame. No-op
-        # without redis, so single-process installs are unchanged. (A dead driver leaves an
-        # active status with no publisher; client-disconnect + the reaper bound that, and the
-        # VM heartbeat in the next increment tightens it.)
+        # No broker in THIS process - the run is driven elsewhere (another replica or its VM) or is
+        # already terminal: relay its frames off the shared bus, else rebuild the terminal frame.
+        async for frame in self._relay_or_reattach(
+            run_id, tenant_id, project_id, public, last_event_id, status
+        ):
+            yield frame
+
+    async def _claim_for_dispatch(self, run_id: str, tenant_id: str) -> bool:
+        """Atomically flip a queued run to running so EXACTLY ONE caller dispatches it to a VM (a
+        second SSE client / another replica loses the claim and only relays). Returns True iff this
+        caller won (guarded UPDATE affected the row)."""
+        set_current_tenant(tenant_id)  # bind RLS for the guarded write (no-op on SQLite)
+        async with SessionLocal() as session:
+            res = await session.execute(
+                update(Run)
+                .where(Run.id == run_id, Run.tenant_id == tenant_id, Run.status == "queued")
+                .values(status="running", started_at=datetime.utcnow())
+            )
+            await session.commit()
+            return (res.rowcount or 0) == 1
+
+    async def _relay_or_reattach(
+        self, run_id: str, tenant_id: str, project_id: str | None, public: bool,
+        last_event_id: int, status: str,
+    ) -> AsyncIterator[dict]:
+        """Relay a still-running run's frames off the shared bus (A/C3) - replaying past
+        `last_event_id` then following live until the terminal frame - falling back to rebuilding
+        the terminal frame from the DB when the run is terminal or no relay bus is configured.
+        (A dead driver leaves an active status with no publisher; client-disconnect + the reaper
+        bound that.)"""
         if status == "running":
             from ros.services.run_relay import get_relay_bus, relay_frames
 
@@ -614,8 +677,6 @@ class RunService:
                     yield {"id": str(seq), "event": frame["event"], "data": frame["data"]}
                 if relayed:
                     return
-        # Terminal run (past its retention window or driven in a since-gone process), or no relay
-        # available: rebuild the terminal frame from the DB.
         async for frame in self._reattach_from_db(run_id, tenant_id, project_id, public):
             yield frame
 
