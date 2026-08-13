@@ -24,8 +24,8 @@ async def test_submit_dispatches_to_vm_when_enabled(monkeypatch):
     monkeypatch.setattr(freestyle_control, "is_enabled", lambda: True)
     seen: dict = {}
 
-    async def fake_dispatch(*, run_id, tenant_id, project_id, master_url, run_token, client=None):
-        seen.update(run_id=run_id, master_url=master_url, run_token=run_token)
+    async def fake_dispatch(*, run_id, tenant_id, project_id, master_url, run_token, sticky_key=None, client=None):
+        seen.update(run_id=run_id, master_url=master_url, run_token=run_token, sticky_key=sticky_key)
         return {"vm_id": "vm_9"}
 
     monkeypatch.setattr(freestyle_control, "dispatch_run", fake_dispatch)
@@ -35,6 +35,7 @@ async def test_submit_dispatches_to_vm_when_enabled(monkeypatch):
     from ros.security import decode_token
     claims = decode_token(seen["run_token"], expected_type="run")
     assert seen["run_id"] == "r1" and claims["sub"] == "r1" and claims["scope"] == "runtime:pull"
+    assert seen["sticky_key"] is None  # warm-VM mode off by default -> one VM per run
 
 
 async def test_submit_falls_back_to_local_when_disabled(monkeypatch):
@@ -71,3 +72,55 @@ async def test_dispatch_run_posts_the_runner_command(monkeypatch):
     # Trusted-VM: the VM drives the run against the shared DB (not the manifest ainvoke path).
     assert "python -m ros.runtime drive --run-id r --tenant t --project p" in captured["body"]["command"]
     assert captured["body"]["env"]["ROS_MASTER_URL"] == "http://master"
+    assert "stickyKey" not in captured["body"] and "warm" not in captured["body"]  # cold by default
+
+
+async def test_dispatch_run_asks_svc_to_reuse_a_warm_vm_when_sticky():
+    captured: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        import json as _j
+        captured["body"] = _j.loads(req.content)
+        return httpx.Response(202, json={"vm_id": "vm_warm"})
+
+    client = httpx.AsyncClient(base_url="http://svc", transport=httpx.MockTransport(handler))
+    await freestyle_control.dispatch_run(
+        run_id="r", tenant_id="t", project_id="p", master_url="http://master",
+        run_token="tok", sticky_key="wf_agent", client=client,
+    )
+    await client.aclose()
+    assert captured["body"]["stickyKey"] == "wf_agent" and captured["body"]["warm"] is True
+
+
+async def test_submit_keys_sticky_vm_by_agent_workflow_when_warm(monkeypatch):
+    import uuid
+
+    from ros.db.base import SessionLocal
+    from ros.models import Run, Thread, Workflow
+
+    monkeypatch.setattr(settings, "freestyle_service_url", "http://svc")
+    monkeypatch.setattr(settings, "freestyle_warm_vms", True)
+    monkeypatch.setattr(freestyle_control, "is_enabled", lambda: True)
+
+    t, p = f"t_{uuid.uuid4().hex[:8]}", f"p_{uuid.uuid4().hex[:8]}"
+    async with SessionLocal() as s:
+        wf = Workflow(tenant_id=t, project_id=p, name="w", executable={"nodes": [], "edges": []}, status="active")
+        s.add(wf)
+        await s.flush()
+        thread = Thread(tenant_id=t, project_id=p, workflow_id=wf.id, lg_thread_id="lg", meta={})
+        s.add(thread)
+        await s.flush()
+        run = Run(tenant_id=t, project_id=p, workflow_id=wf.id, thread_id=thread.id, status="queued", input={})
+        s.add(run)
+        await s.commit()
+        rid, wid = run.id, wf.id
+
+    seen: dict = {}
+
+    async def fake_dispatch(*, run_id, tenant_id, project_id, master_url, run_token, sticky_key=None, client=None):
+        seen["sticky_key"] = sticky_key
+        return {"vm_id": "vm"}
+
+    monkeypatch.setattr(freestyle_control, "dispatch_run", fake_dispatch)
+    await FreestyleBackend().submit(run_id=rid, tenant_id=t, project_id=p)
+    assert seen["sticky_key"] == wid  # one warm VM per agent (keyed by the workflow id)

@@ -289,6 +289,10 @@ class Settings(BaseSettings):
     # freestyle backend falls back to the local inline/arq path (dev/tests keep working).
     freestyle_service_url: str = ""
     freestyle_service_secret: str = ""
+    # Warm/sticky per-agent VMs: when set, dispatch passes a stable stickyKey (the workflow id) so
+    # freestyle-svc can REUSE a warm VM for that agent instead of cold-booting one per run. The VM
+    # pool lifecycle (idle-reaping, caps) lives in the control service, not here. Off -> one VM/run.
+    freestyle_warm_vms: bool = False
     # External MCP servers reached via the `stdio` transport launch a LOCAL PROCESS
     # (command + args) - i.e. arbitrary command execution on the API host, like an
     # unsandboxed code tool. OFF by default; enable only on a trusted single-tenant install.

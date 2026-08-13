@@ -34,11 +34,29 @@ class FreestyleBackend(LocalBackend):
                 run_id=run_id, tenant_id=tenant_id, project_id=project_id, run_service=run_service
             )
         run_token = self._mint_run_token(run_id=run_id, tenant_id=tenant_id, project_id=project_id)
+        # Warm-VM mode: key stickiness by the agent (the run's workflow id) so freestyle-svc reuses
+        # one warm VM per agent across its runs, instead of cold-booting per run.
+        sticky_key = await self._sticky_key(run_id, tenant_id) if settings.freestyle_warm_vms else None
         receipt = await freestyle_control.dispatch_run(
             run_id=run_id, tenant_id=tenant_id, project_id=project_id,
-            master_url=settings.public_base_url, run_token=run_token,
+            master_url=settings.public_base_url, run_token=run_token, sticky_key=sticky_key,
         )
         return {"run_id": run_id, "status": "dispatched", "backend": "freestyle", **receipt}
+
+    async def _sticky_key(self, run_id: str, tenant_id: str) -> str | None:
+        """The agent's stable warm-VM key = the run's workflow id (each agent gets its own VM)."""
+        from sqlalchemy import select
+
+        from ros.db.base import SessionLocal
+        from ros.db.scoping import set_current_tenant
+        from ros.models import Run
+
+        set_current_tenant(tenant_id)
+        async with SessionLocal() as session:
+            wf_id = (await session.execute(
+                select(Run.workflow_id).where(Run.id == run_id, Run.tenant_id == tenant_id)
+            )).scalar_one_or_none()
+        return wf_id
 
     def _mint_run_token(self, *, run_id: str, tenant_id: str, project_id: str | None) -> str:
         """Short-lived, run-scoped token the VM presents to master to pull the run manifest
