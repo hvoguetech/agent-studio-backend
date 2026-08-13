@@ -23,6 +23,7 @@ from ros.db.base import SessionLocal
 from ros.db.scoping import set_current_tenant
 from ros.engine.compiler import compile_workflow
 from ros.models import Run, Thread, Trace, Workflow
+from ros.services.run_frames import map_chunk_frames
 from ros.services.runtime import build_compile_context
 from ros.tracing.tracer import ROSTracer
 from ros.util.locks import ConcurrencyLimitExceeded, tenant_concurrency, thread_locks
@@ -31,7 +32,6 @@ from ros.util.serialize import (
     content_to_text,
     jsonable,
     reset_tool_display_names,
-    serialize_stream,
     set_tool_display_names,
 )
 
@@ -786,46 +786,14 @@ class RunService:
                             act = activity.popleft()
                             if not public:
                                 await broker.publish({"event": "activity", "data": act})
-                        if mode == "tasks" and isinstance(chunk, dict):
-                            # node_start / node_error expose internal workflow node names (and error
-                            # detail) - operator-only, never to an anonymous embed end user (H5).
-                            if public:
-                                continue
-                            name = chunk.get("name")
-                            if name in node_ids and "triggers" in chunk:
-                                await broker.publish({"event": "node_start", "data": {"node": name}})
-                            elif name in node_ids and chunk.get("error") is not None:
-                                await broker.publish({"event": "node_error", "data": {"node": name, "message": _client_error(public, run.id, str(chunk.get("error")))}})
-                            continue
-                        # "updates" frames carry internal node names + intermediate node state
-                        # (retrieved knowledge, tool results); never send them to the public embed
-                        # surface (H5). For operators, still skip subgraph-internal updates.
-                        if mode == "updates" and (public or ns):
-                            continue
-                        # In messages mode, only stream the agent's own answer tokens - never
-                        # tool-result / human-message content, nor a classifier/structured node's
-                        # internal tokens (both would otherwise leak into the chat bubble).
-                        if mode == "messages":
-                            # A deep_agent's sub-agent streams its OWN answer from a namespace whose
-                            # path contains a "tools:<id>" segment (the `task` spawner) - see the
-                            # deepagents streaming docs. Streaming both it AND the supervisor's
-                            # synthesis duplicated the reply in the chat. Suppress sub-agent tokens
-                            # (they stay visible in the activity timeline + Traces); this is precise
-                            # (unlike a depth check it won't hide a real agent inside a subworkflow).
-                            if any(str(seg).startswith("tools:") for seg in (ns or ())):
-                                continue
-                            msg = chunk[0] if isinstance(chunk, (list, tuple)) and chunk else chunk
-                            if getattr(msg, "type", "") not in ("ai", "AIMessageChunk"):
-                                continue
-                            meta = chunk[1] if isinstance(chunk, (list, tuple)) and len(chunk) == 2 else {}
-                            if (meta or {}).get("langgraph_node") in suppressed_message_nodes:
-                                continue
-                        data = serialize_stream(mode, chunk)
-                        # The internal node name rides along on message frames; strip it on the
-                        # public embed surface so node topology isn't exposed to end users (H5).
-                        if public and mode == "messages" and isinstance(data, dict):
-                            data.pop("node", None)
-                        await broker.publish({"event": mode, "data": data})
+                        # Map this chunk to its SSE frame(s) via the shared mapper (also used by the
+                        # standalone runtime on a Freestyle VM, so the stream is identical wherever
+                        # the run is driven). Activity + terminal frames are emitted around this.
+                        for frame in map_chunk_frames(
+                            ns, mode, chunk, public=public,
+                            node_ids=node_ids, suppressed_message_nodes=suppressed_message_nodes,
+                        ):
+                            await broker.publish(frame)
 
                     # Flush trailing tool/sub-agent activity (final "end" frames) before closing.
                     while activity:
