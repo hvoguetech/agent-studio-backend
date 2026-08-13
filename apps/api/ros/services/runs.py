@@ -601,7 +601,12 @@ class RunService:
         # submit it to the VM and relay its stream off the shared bus (A/C3). A resume stays on
         # master: the HITL interrupt state lives in the shared checkpointer, so master continues it
         # directly. If the dispatch itself fails, fall back to driving locally.
-        if start and not resume and _vm_dispatch_enabled():
+        #
+        # Only PLAIN operator runs dispatch for now: `public` (embed) and `run_context` are not yet
+        # threaded through submit->drive, and driving an embed run as non-public on the VM would leak
+        # operator-only frames (node_start / activity / tokens) to the end user (H5). Public runs and
+        # runs carrying a run_context drive locally until those are plumbed through.
+        if start and not resume and not public and run_context is None and _vm_dispatch_enabled():
             if await self._claim_for_dispatch(run_id, tenant_id):
                 try:
                     from ros.execution import get_backend
@@ -647,13 +652,16 @@ class RunService:
     async def _claim_for_dispatch(self, run_id: str, tenant_id: str) -> bool:
         """Atomically flip a queued run to running so EXACTLY ONE caller dispatches it to a VM (a
         second SSE client / another replica loses the claim and only relays). Returns True iff this
-        caller won (guarded UPDATE affected the row)."""
+        caller won (guarded UPDATE affected the row). Stamps a fresh `heartbeat_at` so the run looks
+        ALIVE during the VM's boot window - otherwise the reaper (running + null heartbeat = orphan)
+        could re-drive it on master before the VM takes over the heartbeat (double-driver)."""
         set_current_tenant(tenant_id)  # bind RLS for the guarded write (no-op on SQLite)
+        now = datetime.utcnow()
         async with SessionLocal() as session:
             res = await session.execute(
                 update(Run)
                 .where(Run.id == run_id, Run.tenant_id == tenant_id, Run.status == "queued")
-                .values(status="running", started_at=datetime.utcnow())
+                .values(status="running", started_at=now, heartbeat_at=now)
             )
             await session.commit()
             return (res.rowcount or 0) == 1

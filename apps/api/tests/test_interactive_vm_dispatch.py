@@ -132,6 +132,30 @@ async def test_stream_falls_back_to_local_when_dispatch_fails(freestyle, monkeyp
         assert (await s.get(Run, rid)).status == "done"
 
 
+async def test_public_and_context_runs_do_not_dispatch_to_vm(freestyle, monkeypatch):
+    # public (embed) + run_context aren't plumbed through to the VM yet, so those must drive LOCALLY
+    # (dispatching an embed run as non-public would leak operator-only frames - H5).
+    calls = {"n": 0}
+
+    class _FakeBackend:
+        async def submit(self, **kw):
+            calls["n"] += 1
+            return {"status": "dispatched"}
+
+    monkeypatch.setattr("ros.execution.get_backend", lambda: _FakeBackend())
+
+    t, p, rid = await _seed_queued_run()
+    rs = RunService(checkpointer=InMemorySaver())
+    frames = [f async for f in rs.stream(run_id=rid, tenant_id=t, project_id=p, public=True)]
+    assert calls["n"] == 0  # public run did NOT dispatch
+    assert "done" in [f["event"] for f in frames]  # it drove locally to completion
+
+    t2, p2, rid2 = await _seed_queued_run()
+    frames2 = [f async for f in rs.stream(run_id=rid2, tenant_id=t2, project_id=p2, run_context={"end_user": {"id": "u1"}})]
+    assert calls["n"] == 0  # run carrying a run_context did NOT dispatch either
+    assert "done" in [f["event"] for f in frames2]
+
+
 async def test_relay_watchdog_surfaces_error_when_vm_goes_silent(freestyle, monkeypatch):
     # A dispatched run whose VM never publishes and never beats: the relay watchdog must give up
     # (past the orphan threshold) and surface a terminal error instead of hanging.
