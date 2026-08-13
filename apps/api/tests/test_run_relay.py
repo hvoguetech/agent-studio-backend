@@ -10,6 +10,7 @@ import pytest
 
 from ros.services.run_relay import (
     InMemoryRelayBus,
+    _channel,
     publish_frame,
     relay_frames,
     set_relay_bus,
@@ -72,9 +73,9 @@ async def test_no_bus_is_noop():
 async def test_broker_publish_mirrors_to_bus(bus):
     from ros.services.runs import _RunBroker
 
-    broker = _RunBroker("r_mirror")
+    broker = _RunBroker("r_mirror", "t_m")
     await broker.publish(_frame("token", text="x"))
-    buffered = await bus.buffered("r_mirror")
+    buffered = await bus.buffered(_channel("r_mirror", "t_m"))
     assert buffered and buffered[0]["seq"] == 1 and buffered[0]["frame"]["event"] == "token"
 
 
@@ -83,4 +84,16 @@ async def test_broker_without_run_id_does_not_mirror(bus):
 
     broker = _RunBroker("")  # anonymous broker (belt-and-suspenders): nothing to mirror against
     await broker.publish(_frame("token"))
-    assert await bus.buffered("") == []
+    assert await bus.buffered(_channel("")) == []
+
+
+async def test_relay_is_tenant_namespaced(bus):
+    # The same run_id under two tenants lands on SEPARATE channels (defense-in-depth on shared Redis).
+    await publish_frame("shared_rid", 1, _frame("done"), tenant_id="t1")
+    # t1's relay sees its own terminal frame and returns; t2's channel is empty. (We assert t2 via
+    # buffered(), NOT a relay_frames drain - relay_frames blocks on a quiet channel by design, since
+    # in production only the watchdog-wrapped pump drives it and cancels it.)
+    got_t1 = [f["event"] async for _, f in relay_frames("shared_rid", 0, tenant_id="t1")]
+    assert got_t1 == ["done"]
+    assert await bus.buffered(_channel("shared_rid", "t1"))  # keyed under the tenant prefix
+    assert await bus.buffered(_channel("shared_rid", "t2")) == []  # isolated: nothing under t2

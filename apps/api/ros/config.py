@@ -654,6 +654,19 @@ class Settings(BaseSettings):
                 "stream to clients (interactive SSE degrades to 'not streaming on this server'). "
                 "Set ROS_REDIS_URL to the shared Redis so the run relay works."
             )
+        if self.redis_url and self.environment.lower() not in self._DEV_ENVIRONMENTS:
+            url = self.redis_url
+            if not url.startswith("rediss://"):
+                warns.append(
+                    "ROS_REDIS_URL is not TLS (rediss://). The shared Redis carries run-stream "
+                    "frames + rate-limit/lock/revocation state across ALL tenants; use rediss:// "
+                    "and keep Redis on a private network outside dev."
+                )
+            if "@" not in url.split("://", 1)[-1]:
+                warns.append(
+                    "ROS_REDIS_URL has no credentials - enable Redis AUTH (and per-prefix ACLs) so "
+                    "a component can't read other tenants' keys on the shared instance."
+                )
         return warns
 
 

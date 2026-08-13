@@ -75,9 +75,9 @@ async def test_stream_dispatches_to_vm_and_relays(freestyle, monkeypatch):
         async def submit(self, *, run_id, tenant_id, project_id=None, public=False, run_context=None):
             submitted.update(run_id=run_id, tenant_id=tenant_id, project_id=project_id, public=public)
             # Simulate the VM driving + publishing its stream to the shared bus.
-            await publish_frame(run_id, 1, {"event": "run", "data": {"run_id": run_id}})
-            await publish_frame(run_id, 2, {"event": "messages", "data": {"content": "hi"}})
-            await publish_frame(run_id, 3, {"event": "done", "data": {"status": "done", "answer": "hi"}})
+            await publish_frame(run_id, 1, {"event": "run", "data": {"run_id": run_id}}, tenant_id=tenant_id)
+            await publish_frame(run_id, 2, {"event": "messages", "data": {"content": "hi"}}, tenant_id=tenant_id)
+            await publish_frame(run_id, 3, {"event": "done", "data": {"status": "done", "answer": "hi"}}, tenant_id=tenant_id)
             return {"status": "dispatched"}
 
     monkeypatch.setattr("ros.execution.get_backend", lambda: _FakeBackend())
@@ -96,8 +96,8 @@ async def test_lost_claim_relays_without_a_second_dispatch(freestyle, monkeypatc
     # Another caller already claimed + dispatched: run is 'running' and its frames are on the bus.
     rs = RunService()
     assert await rs._claim_for_dispatch(rid, t) is True
-    await publish_frame(rid, 1, {"event": "run", "data": {"run_id": rid}})
-    await publish_frame(rid, 2, {"event": "done", "data": {"status": "done", "answer": "hi"}})
+    await publish_frame(rid, 1, {"event": "run", "data": {"run_id": rid}}, tenant_id=t)
+    await publish_frame(rid, 2, {"event": "done", "data": {"status": "done", "answer": "hi"}}, tenant_id=t)
 
     calls = {"n": 0}
 
@@ -140,7 +140,7 @@ async def test_public_and_context_runs_dispatch_with_flags(freestyle, monkeypatc
     class _FakeBackend:
         async def submit(self, *, run_id, tenant_id, project_id=None, public=False, run_context=None):
             seen.append({"public": public, "run_context": run_context})
-            await publish_frame(run_id, 1, {"event": "done", "data": {"status": "done"}})
+            await publish_frame(run_id, 1, {"event": "done", "data": {"status": "done"}}, tenant_id=tenant_id)
             return {"status": "dispatched"}
 
     monkeypatch.setattr("ros.execution.get_backend", lambda: _FakeBackend())

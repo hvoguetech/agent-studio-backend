@@ -42,7 +42,7 @@ async def drive_run(
         # Publishing to a run_id-bound broker mirrors every frame to the relay bus (increment 1);
         # _execute drives _drive (reads run.input/thread from the DB, streams, finalizes the row),
         # then finishes the broker.
-        broker = _RunBroker(run_id)
+        broker = _RunBroker(run_id, tenant_id)
         await svc._execute(
             run_id=run_id,
             tenant_id=tenant_id,

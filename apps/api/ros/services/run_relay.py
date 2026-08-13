@@ -28,15 +28,17 @@ _BUF_TTL_S = 3600       # relay buffer lifetime
 _TERMINAL = {"done", "error", "canceled"}
 
 
-def _channel(run_id: str) -> str:
-    return f"ros:run:{run_id}"
+def _channel(run_id: str, tenant_id: str = "") -> str:
+    # Tenant-namespaced key space (defense-in-depth + Redis-ACL-able per prefix); unprefixed when no
+    # tenant is supplied so the no-tenant path and existing single-tenant installs are unchanged.
+    return f"ros:{tenant_id}:run:{run_id}" if tenant_id else f"ros:run:{run_id}"
 
 
 @runtime_checkable
 class RelayBus(Protocol):
-    async def publish(self, run_id: str, item: dict) -> None: ...
-    async def buffered(self, run_id: str) -> list[dict]: ...
-    def subscribe(self, run_id: str) -> AsyncIterator[dict]: ...
+    async def publish(self, channel: str, item: dict) -> None: ...
+    async def buffered(self, channel: str) -> list[dict]: ...
+    def subscribe(self, channel: str) -> AsyncIterator[dict]: ...
 
 
 class RedisRelayBus:
@@ -52,30 +54,30 @@ class RedisRelayBus:
         from redis.asyncio import from_url
         return from_url(self._url)
 
-    async def publish(self, run_id: str, item: dict) -> None:
+    async def publish(self, channel: str, item: dict) -> None:
         payload = json.dumps(item, default=str)
         redis = self._client()
         try:
-            buf = f"{_channel(run_id)}:buf"
+            buf = f"{channel}:buf"
             await redis.rpush(buf, payload)
             await redis.ltrim(buf, -_BUF_MAX, -1)
             await redis.expire(buf, _BUF_TTL_S)
-            await redis.publish(_channel(run_id), payload)
+            await redis.publish(channel, payload)
         finally:
             await redis.aclose()
 
-    async def buffered(self, run_id: str) -> list[dict]:
+    async def buffered(self, channel: str) -> list[dict]:
         redis = self._client()
         try:
-            raw = await redis.lrange(f"{_channel(run_id)}:buf", 0, -1)
+            raw = await redis.lrange(f"{channel}:buf", 0, -1)
         finally:
             await redis.aclose()
         return [json.loads(r) for r in raw]
 
-    async def subscribe(self, run_id: str) -> AsyncIterator[dict]:
+    async def subscribe(self, channel: str) -> AsyncIterator[dict]:
         redis = self._client()
         pubsub = redis.pubsub()
-        await pubsub.subscribe(_channel(run_id))
+        await pubsub.subscribe(channel)
         try:
             async for msg in pubsub.listen():
                 if msg.get("type") != "message":
@@ -83,7 +85,7 @@ class RedisRelayBus:
                 data = msg.get("data")
                 yield json.loads(data.decode() if isinstance(data, bytes) else data)
         finally:
-            await pubsub.unsubscribe(_channel(run_id))
+            await pubsub.unsubscribe(channel)
             await pubsub.aclose()
             await redis.aclose()
 
@@ -95,22 +97,22 @@ class InMemoryRelayBus:
         self._buf: dict[str, list[dict]] = {}
         self._subs: dict[str, set[asyncio.Queue]] = {}
 
-    async def publish(self, run_id: str, item: dict) -> None:
-        self._buf.setdefault(run_id, []).append(item)
-        for q in self._subs.get(run_id, set()):
+    async def publish(self, channel: str, item: dict) -> None:
+        self._buf.setdefault(channel, []).append(item)
+        for q in self._subs.get(channel, set()):
             q.put_nowait(item)
 
-    async def buffered(self, run_id: str) -> list[dict]:
-        return list(self._buf.get(run_id, []))
+    async def buffered(self, channel: str) -> list[dict]:
+        return list(self._buf.get(channel, []))
 
-    async def subscribe(self, run_id: str) -> AsyncIterator[dict]:
+    async def subscribe(self, channel: str) -> AsyncIterator[dict]:
         q: asyncio.Queue = asyncio.Queue()
-        self._subs.setdefault(run_id, set()).add(q)
+        self._subs.setdefault(channel, set()).add(q)
         try:
             while True:
                 yield await q.get()
         finally:
-            self._subs.get(run_id, set()).discard(q)
+            self._subs.get(channel, set()).discard(q)
 
 
 _bus: RelayBus | None = None
@@ -132,25 +134,30 @@ def set_relay_bus(bus: RelayBus | None) -> None:
     _bus, _resolved = bus, True
 
 
-async def publish_frame(run_id: str, seq: int, frame: dict) -> None:
-    """Best-effort mirror of one broker frame to the shared bus (no-op without a bus)."""
+async def publish_frame(run_id: str, seq: int, frame: dict, *, tenant_id: str = "") -> None:
+    """Best-effort mirror of one broker frame to the shared bus (no-op without a bus). Published on
+    the tenant-namespaced channel so a shared Redis keeps tenants' run streams in separate key
+    spaces (defense-in-depth; API-layer authz remains the primary control)."""
     bus = get_relay_bus()
     if bus is None:
         return
     try:
-        await bus.publish(run_id, {"seq": seq, "frame": frame})
+        await bus.publish(_channel(run_id, tenant_id), {"seq": seq, "frame": frame})
     except Exception:  # noqa: BLE001 - a relay hiccup must never break the in-process stream
         log.debug("relay publish failed for %s", run_id, exc_info=True)
 
 
-async def relay_frames(run_id: str, last_event_id: int = 0) -> AsyncIterator[tuple[int, dict]]:
+async def relay_frames(
+    run_id: str, last_event_id: int = 0, *, tenant_id: str = "",
+) -> AsyncIterator[tuple[int, dict]]:
     """Relay a run's frames from the shared bus (buffered replay past `last_event_id`, then live),
-    stopping after a terminal frame. Empty when no bus is configured."""
+    stopping after a terminal frame. Reads the tenant-namespaced channel. Empty when no bus."""
     bus = get_relay_bus()
     if bus is None:
         return
+    channel = _channel(run_id, tenant_id)
     seen = last_event_id
-    for item in await bus.buffered(run_id):
+    for item in await bus.buffered(channel):
         seq = int(item.get("seq") or 0)
         frame = item.get("frame") or {}
         if seq > seen:
@@ -158,7 +165,7 @@ async def relay_frames(run_id: str, last_event_id: int = 0) -> AsyncIterator[tup
             seen = seq
             if frame.get("event") in _TERMINAL:
                 return
-    async for item in bus.subscribe(run_id):
+    async for item in bus.subscribe(channel):
         seq = int(item.get("seq") or 0)
         frame = item.get("frame") or {}
         if seq > seen:

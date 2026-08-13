@@ -13,7 +13,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from ros.db.base import SessionLocal
 from ros.models import Run, Thread, Workflow
 from ros.runtime.driver import drive_run
-from ros.services.run_relay import InMemoryRelayBus, set_relay_bus
+from ros.services.run_relay import InMemoryRelayBus, _channel, set_relay_bus
 
 _ANSWER = "Driven on the VM."
 _WF = {
@@ -64,7 +64,7 @@ async def test_drive_run_finalizes_db_and_mirrors_stream_to_bus(bus):
 
     # Every frame reached the relay bus, monotonic from 1, opening with `run` and terminating in a
     # `done` carrying the final answer - i.e. master would relay an identical stream.
-    frames = await bus.buffered(rid)
+    frames = await bus.buffered(_channel(rid, t))
     seqs = [f["seq"] for f in frames]
     events = [f["frame"]["event"] for f in frames]
     assert seqs == sorted(seqs) and seqs[0] == 1

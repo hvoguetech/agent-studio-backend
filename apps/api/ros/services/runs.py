@@ -206,8 +206,9 @@ class _RunBroker:
     """Ordered, replayable, multi-subscriber event buffer for one run episode. Frames get a
     monotonic seq (the SSE event id); subscribers replay from a Last-Event-ID then follow live."""
 
-    def __init__(self, run_id: str = "") -> None:
+    def __init__(self, run_id: str = "", tenant_id: str = "") -> None:
         self.run_id = run_id
+        self.tenant_id = tenant_id
         self.seq = 0
         self.events: list[tuple[int, dict]] = []
         self.done = asyncio.Event()
@@ -227,7 +228,7 @@ class _RunBroker:
         if self.run_id:
             from ros.services.run_relay import publish_frame
 
-            await publish_frame(self.run_id, seq, frame)
+            await publish_frame(self.run_id, seq, frame, tenant_id=self.tenant_id)
 
     async def finish(self) -> None:
         async with self._lock:
@@ -277,7 +278,7 @@ class _RunStreams:
     def get(self, run_id: str) -> _RunBroker | None:
         return self._brokers.get(run_id)
 
-    async def ensure(self, run_id: str, *, start: bool, factory) -> tuple[_RunBroker | None, bool]:
+    async def ensure(self, run_id: str, *, start: bool, factory, tenant_id: str = "") -> tuple[_RunBroker | None, bool]:
         """Return (broker, started_now). If a LIVE (unfinished) executor already owns this run,
         reattach to it. Else if `start`, launch a fresh executor+broker episode (initial run or a
         resume). Else return the finished broker (for replay) or None (nothing in this process)."""
@@ -287,7 +288,7 @@ class _RunStreams:
                 return existing, False
             if not start:
                 return existing, False
-            broker = _RunBroker(run_id)
+            broker = _RunBroker(run_id, tenant_id)
             self._brokers[run_id] = broker
             task = asyncio.create_task(factory(broker))
             self._tasks[run_id] = task
@@ -629,7 +630,7 @@ class RunService:
                 return
 
         broker, _started = await run_streams.ensure(
-            run_id, start=start,
+            run_id, start=start, tenant_id=tenant_id,
             factory=lambda b: self._execute(
                 run_id=run_id, tenant_id=tenant_id, project_id=project_id, public=public,
                 run_context=run_context, resume=resume, resume_value=resume_value, broker=b,
@@ -706,7 +707,7 @@ class RunService:
 
         async def _pump() -> None:
             try:
-                async for seq, frame in relay_frames(run_id, last_event_id):
+                async for seq, frame in relay_frames(run_id, last_event_id, tenant_id=tenant_id):
                     await q.put((seq, frame))
             finally:
                 await q.put(None)  # relay ended (terminal frame delivered, or bus closed)
