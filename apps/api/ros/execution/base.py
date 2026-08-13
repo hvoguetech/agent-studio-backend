@@ -36,12 +36,14 @@ class ExecutionBackend(ABC):
     @abstractmethod
     async def submit(
         self, *, run_id: str, tenant_id: str, project_id: str | None = None,
-        run_service: Any = None,
+        run_service: Any = None, public: bool = False, run_context: dict | None = None,
     ) -> dict:
-        """Durably execute a non-interactive run. Returns the run result dict (inline) or an
-        enqueue receipt (offloaded). `run_service` is an optional adapter the core passes so a
-        backend can reuse the caller's RunService (and its checkpointer) for an inline run;
-        backends that own execution elsewhere (e.g. Inngest) ignore it."""
+        """Durably execute a run. Returns the run result dict (inline) or an enqueue/dispatch
+        receipt (offloaded). `run_service` is an optional adapter the core passes so a backend can
+        reuse the caller's RunService (and its checkpointer) for an inline run; backends that own
+        execution elsewhere (e.g. Inngest) ignore it. `public` / `run_context` carry the surface
+        (embed vs operator) + per-run context for a backend that drives an INTERACTIVE run off-box
+        (e.g. Freestyle dispatching to a VM); non-interactive backends ignore them."""
 
     @abstractmethod
     async def retry(

@@ -72,8 +72,8 @@ async def test_stream_dispatches_to_vm_and_relays(freestyle, monkeypatch):
     submitted: dict = {}
 
     class _FakeBackend:
-        async def submit(self, *, run_id, tenant_id, project_id=None):
-            submitted.update(run_id=run_id, tenant_id=tenant_id, project_id=project_id)
+        async def submit(self, *, run_id, tenant_id, project_id=None, public=False, run_context=None):
+            submitted.update(run_id=run_id, tenant_id=tenant_id, project_id=project_id, public=public)
             # Simulate the VM driving + publishing its stream to the shared bus.
             await publish_frame(run_id, 1, {"event": "run", "data": {"run_id": run_id}})
             await publish_frame(run_id, 2, {"event": "messages", "data": {"content": "hi"}})
@@ -132,27 +132,29 @@ async def test_stream_falls_back_to_local_when_dispatch_fails(freestyle, monkeyp
         assert (await s.get(Run, rid)).status == "done"
 
 
-async def test_public_and_context_runs_do_not_dispatch_to_vm(freestyle, monkeypatch):
-    # public (embed) + run_context aren't plumbed through to the VM yet, so those must drive LOCALLY
-    # (dispatching an embed run as non-public would leak operator-only frames - H5).
-    calls = {"n": 0}
+async def test_public_and_context_runs_dispatch_with_flags(freestyle, monkeypatch):
+    # public (embed) + run_context now flow through to the VM (the VM's _drive redacts operator-only
+    # frames when public), so those runs dispatch too - assert the flags reach submit.
+    seen: list = []
 
     class _FakeBackend:
-        async def submit(self, **kw):
-            calls["n"] += 1
+        async def submit(self, *, run_id, tenant_id, project_id=None, public=False, run_context=None):
+            seen.append({"public": public, "run_context": run_context})
+            await publish_frame(run_id, 1, {"event": "done", "data": {"status": "done"}})
             return {"status": "dispatched"}
 
     monkeypatch.setattr("ros.execution.get_backend", lambda: _FakeBackend())
 
     t, p, rid = await _seed_queued_run()
-    rs = RunService(checkpointer=InMemorySaver())
+    rs = RunService()
     frames = [f async for f in rs.stream(run_id=rid, tenant_id=t, project_id=p, public=True)]
-    assert calls["n"] == 0  # public run did NOT dispatch
-    assert "done" in [f["event"] for f in frames]  # it drove locally to completion
+    assert seen and seen[0]["public"] is True  # embed surface propagated to the VM
+    assert "done" in [f["event"] for f in frames]
 
+    ctx = {"end_user": {"id": "u1"}}
     t2, p2, rid2 = await _seed_queued_run()
-    frames2 = [f async for f in rs.stream(run_id=rid2, tenant_id=t2, project_id=p2, run_context={"end_user": {"id": "u1"}})]
-    assert calls["n"] == 0  # run carrying a run_context did NOT dispatch either
+    frames2 = [f async for f in rs.stream(run_id=rid2, tenant_id=t2, project_id=p2, run_context=ctx)]
+    assert seen[1]["run_context"] == ctx  # per-run context propagated
     assert "done" in [f["event"] for f in frames2]
 
 

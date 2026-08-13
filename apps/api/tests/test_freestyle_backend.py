@@ -24,7 +24,7 @@ async def test_submit_dispatches_to_vm_when_enabled(monkeypatch):
     monkeypatch.setattr(freestyle_control, "is_enabled", lambda: True)
     seen: dict = {}
 
-    async def fake_dispatch(*, run_id, tenant_id, project_id, master_url, run_token, sticky_key=None, client=None):
+    async def fake_dispatch(*, run_id, tenant_id, project_id, master_url, run_token, sticky_key=None, public=False, run_context=None, client=None):
         seen.update(run_id=run_id, master_url=master_url, run_token=run_token, sticky_key=sticky_key)
         return {"vm_id": "vm_9"}
 
@@ -42,7 +42,7 @@ async def test_submit_falls_back_to_local_when_disabled(monkeypatch):
     monkeypatch.setattr(freestyle_control, "is_enabled", lambda: False)
     called = {"n": 0}
 
-    async def fake_super(self, *, run_id, tenant_id, project_id=None, run_service=None):
+    async def fake_super(self, *, run_id, tenant_id, project_id=None, run_service=None, public=False, run_context=None):
         called["n"] += 1
         return {"run_id": run_id, "status": "queued"}
 
@@ -73,6 +73,25 @@ async def test_dispatch_run_posts_the_runner_command(monkeypatch):
     assert "python -m ros.runtime drive --run-id r --tenant t --project p" in captured["body"]["command"]
     assert captured["body"]["env"]["ROS_MASTER_URL"] == "http://master"
     assert "stickyKey" not in captured["body"] and "warm" not in captured["body"]  # cold by default
+
+
+async def test_dispatch_run_carries_public_and_run_context():
+    captured: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        import json as _j
+        captured["body"] = _j.loads(req.content)
+        return httpx.Response(202, json={"vm_id": "v"})
+
+    client = httpx.AsyncClient(base_url="http://svc", transport=httpx.MockTransport(handler))
+    await freestyle_control.dispatch_run(
+        run_id="r", tenant_id="t", project_id="p", master_url="http://master",
+        run_token="tok", public=True, run_context={"end_user": {"id": "u1"}}, client=client,
+    )
+    await client.aclose()
+    assert captured["body"]["command"].endswith("--public")  # embed surface -> VM redacts (H5)
+    import json as _j
+    assert _j.loads(captured["body"]["env"]["ROS_RUN_CONTEXT"]) == {"end_user": {"id": "u1"}}
 
 
 async def test_dispatch_run_asks_svc_to_reuse_a_warm_vm_when_sticky():
@@ -117,7 +136,7 @@ async def test_submit_keys_sticky_vm_by_agent_workflow_when_warm(monkeypatch):
 
     seen: dict = {}
 
-    async def fake_dispatch(*, run_id, tenant_id, project_id, master_url, run_token, sticky_key=None, client=None):
+    async def fake_dispatch(*, run_id, tenant_id, project_id, master_url, run_token, sticky_key=None, public=False, run_context=None, client=None):
         seen["sticky_key"] = sticky_key
         return {"vm_id": "vm"}
 

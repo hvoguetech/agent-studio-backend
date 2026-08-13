@@ -38,6 +38,7 @@ def _client() -> httpx.AsyncClient:
 async def dispatch_run(
     *, run_id: str, tenant_id: str, project_id: str | None,
     master_url: str, run_token: str, sticky_key: str | None = None,
+    public: bool = False, run_context: dict | None = None,
     client: httpx.AsyncClient | None = None,
 ) -> dict[str, Any]:
     """Ask freestyle-svc to boot the ros runtime for `run_id` on a VM. Returns a receipt
@@ -54,10 +55,17 @@ async def dispatch_run(
     command = f"python -m ros.runtime drive --run-id {run_id} --tenant {tenant_id}"
     if project_id:
         command += f" --project {project_id}"
+    if public:
+        command += " --public"  # embed surface -> the VM's _drive redacts operator-only frames (H5)
+    env = {"ROS_MASTER_URL": master_url, "ROS_RUNTIME_TOKEN": run_token}
+    if run_context:
+        import json
+        # Per-run context (end-user / request scope) as JSON env, avoiding shell-quoting in `command`.
+        env["ROS_RUN_CONTEXT"] = json.dumps(run_context, default=str)
     body: dict[str, Any] = {
         "runId": run_id, "tenantId": tenant_id, "projectId": project_id,
         "command": command,
-        "env": {"ROS_MASTER_URL": master_url, "ROS_RUNTIME_TOKEN": run_token},
+        "env": env,
     }
     if sticky_key:
         body["stickyKey"] = sticky_key

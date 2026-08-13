@@ -39,7 +39,10 @@ class LocalBackend(ExecutionBackend):
             store=getattr(state, "store", None),
         )
 
-    async def submit(self, *, run_id, tenant_id, project_id=None, run_service=None) -> dict:
+    async def submit(self, *, run_id, tenant_id, project_id=None, run_service=None,
+                     public=False, run_context=None) -> dict:
+        # public / run_context are for off-box interactive drive (Freestyle); the local offload path
+        # is non-interactive, so they're accepted for interface conformance and ignored here.
         # Offload to the arq worker when configured; else run inline (the pre-seam dispatch path).
         from ros.queue import enqueue_run
 

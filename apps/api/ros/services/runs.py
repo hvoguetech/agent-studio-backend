@@ -598,21 +598,18 @@ class RunService:
         # Interactive-on-VM: under a VM-dispatching backend (Freestyle), a FRESH run is driven on
         # its own VM rather than here. Atomically claim it (queued -> running) so EXACTLY ONE caller
         # dispatches - a second SSE client or another replica loses the claim and only relays - then
-        # submit it to the VM and relay its stream off the shared bus (A/C3). A resume stays on
-        # master: the HITL interrupt state lives in the shared checkpointer, so master continues it
-        # directly. If the dispatch itself fails, fall back to driving locally.
-        #
-        # Only PLAIN operator runs dispatch for now: `public` (embed) and `run_context` are not yet
-        # threaded through submit->drive, and driving an embed run as non-public on the VM would leak
-        # operator-only frames (node_start / activity / tokens) to the end user (H5). Public runs and
-        # runs carrying a run_context drive locally until those are plumbed through.
-        if start and not resume and not public and run_context is None and _vm_dispatch_enabled():
+        # submit it to the VM (carrying `public` so an embed run's VM redacts operator-only frames,
+        # and `run_context` for per-run scope) and relay its stream off the shared bus (A/C3). A
+        # resume stays on master: the HITL interrupt state lives in the shared checkpointer, so
+        # master continues it directly. If the dispatch itself fails, fall back to driving locally.
+        if start and not resume and _vm_dispatch_enabled():
             if await self._claim_for_dispatch(run_id, tenant_id):
                 try:
                     from ros.execution import get_backend
 
                     await get_backend().submit(
-                        run_id=run_id, tenant_id=tenant_id, project_id=project_id
+                        run_id=run_id, tenant_id=tenant_id, project_id=project_id,
+                        public=public, run_context=run_context,
                     )
                 except Exception:  # noqa: BLE001 - dispatch failed -> drive locally as a fallback
                     log.exception("VM dispatch failed for run %s; driving locally", run_id)

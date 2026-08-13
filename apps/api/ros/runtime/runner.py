@@ -1,4 +1,8 @@
-"""Runner — compile + drive a workflow from a RunManifest (the standalone runtime's core loop).
+"""Runner — compile + drive a workflow from a RunManifest (the DB-less strict-isolation VM mode).
+
+NOTE: this is VM mode 2 (manifest-pull, non-streaming ainvoke) - see ros/runtime/__init__.py. The
+DEFAULT VM path FreestyleBackend dispatches is `ros.runtime.driver.drive_run` (trusted-VM, shared-DB,
+streaming). This module is retained for the harder-isolation option and is not on the streaming path.
 
 `build_graph` rebuilds the CompileContext from the manifest (no master DB) and compiles the workflow;
 `run` drives it. In production the checkpointer points at the SHARED Postgres (ROS_CHECKPOINT_BACKEND

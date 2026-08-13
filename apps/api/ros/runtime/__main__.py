@@ -32,6 +32,7 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--run-id", required=True, help="Run id to drive (reads input/thread from the shared DB).")
     d.add_argument("--tenant", required=True, help="Tenant id (binds RLS for the shared-DB reads).")
     d.add_argument("--project", default=None, help="Project id (optional scope guard).")
+    d.add_argument("--public", action="store_true", help="Embed surface: redact operator-only frames (H5).")
     d.add_argument("--resume", action="store_true", help="Resume an interrupted (HITL) run.")
     d.add_argument("--resume-value", default=None, help="HITL resume payload as JSON (with --resume).")
 
@@ -62,11 +63,17 @@ async def _run(args) -> int:
 
 
 async def _drive(args) -> int:
+    import os
+
     from ros.runtime.driver import drive_run
 
     resume_value = json.loads(args.resume_value) if args.resume_value else None
+    # Per-run context is passed as a JSON env by the dispatcher (avoids shell-quoting in the command).
+    rc_raw = os.environ.get("ROS_RUN_CONTEXT")
+    run_context = json.loads(rc_raw) if rc_raw else None
     await drive_run(
         run_id=args.run_id, tenant_id=args.tenant, project_id=args.project,
+        public=args.public, run_context=run_context,
         resume=args.resume, resume_value=resume_value,
     )
     return 0

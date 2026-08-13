@@ -24,14 +24,16 @@ logger = logging.getLogger("ros.execution.freestyle")
 class FreestyleBackend(LocalBackend):
     name = "freestyle"
 
-    async def submit(self, *, run_id, tenant_id, project_id=None, run_service=None) -> dict:
+    async def submit(self, *, run_id, tenant_id, project_id=None, run_service=None,
+                     public=False, run_context=None) -> dict:
         from ros.execution import freestyle_control
 
         if not freestyle_control.is_enabled():
             # No control service -> behave exactly like local (inline/arq). Keeps dev/tests working.
             logger.info("freestyle backend: ROS_FREESTYLE_SERVICE_URL unset -> local submit for %s", run_id)
             return await super().submit(
-                run_id=run_id, tenant_id=tenant_id, project_id=project_id, run_service=run_service
+                run_id=run_id, tenant_id=tenant_id, project_id=project_id, run_service=run_service,
+                public=public, run_context=run_context,
             )
         run_token = self._mint_run_token(run_id=run_id, tenant_id=tenant_id, project_id=project_id)
         # Warm-VM mode: key stickiness by the agent (the run's workflow id) so freestyle-svc reuses
@@ -40,6 +42,7 @@ class FreestyleBackend(LocalBackend):
         receipt = await freestyle_control.dispatch_run(
             run_id=run_id, tenant_id=tenant_id, project_id=project_id,
             master_url=settings.public_base_url, run_token=run_token, sticky_key=sticky_key,
+            public=public, run_context=run_context,
         )
         return {"run_id": run_id, "status": "dispatched", "backend": "freestyle", **receipt}
 
