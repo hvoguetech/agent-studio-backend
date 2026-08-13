@@ -664,21 +664,84 @@ class RunService:
     ) -> AsyncIterator[dict]:
         """Relay a still-running run's frames off the shared bus (A/C3) - replaying past
         `last_event_id` then following live until the terminal frame - falling back to rebuilding
-        the terminal frame from the DB when the run is terminal or no relay bus is configured.
-        (A dead driver leaves an active status with no publisher; client-disconnect + the reaper
-        bound that.)"""
+        the terminal frame from the DB when the run is terminal or no relay bus is configured. A
+        watchdog polls the run's DB status/heartbeat so a driver that went silent (dead VM / gone
+        replica) surfaces a terminal error promptly, instead of hanging until the reaper's tick."""
+        bus_on = False
         if status == "running":
-            from ros.services.run_relay import get_relay_bus, relay_frames
+            from ros.services.run_relay import get_relay_bus
 
-            if get_relay_bus() is not None:
-                relayed = False
-                async for seq, frame in relay_frames(run_id, last_event_id):
-                    relayed = True
-                    yield {"id": str(seq), "event": frame["event"], "data": frame["data"]}
-                if relayed:
-                    return
+            bus_on = get_relay_bus() is not None
+        if bus_on:
+            saw_terminal = False
+            async for frame in self._relay_with_watchdog(
+                run_id, tenant_id, project_id, public, last_event_id
+            ):
+                yield frame
+                if frame.get("event") in ("done", "error"):
+                    saw_terminal = True
+            if saw_terminal:
+                return
         async for frame in self._reattach_from_db(run_id, tenant_id, project_id, public):
             yield frame
+
+    async def _relay_with_watchdog(
+        self, run_id: str, tenant_id: str, project_id: str | None, public: bool, last_event_id: int,
+    ) -> AsyncIterator[dict]:
+        """Follow a run's bus frames while a watchdog polls the shared DB. The relay runs in its own
+        task feeding a queue, so a poll timeout never cancels an in-flight bus read. On a quiet gap
+        the watchdog checks the run: finished elsewhere -> stop (the caller reattaches the DB
+        terminal); heartbeat stale past the orphan threshold -> emit an error and stop; still beating
+        -> keep waiting (a slow provider call is not a dead driver)."""
+        from ros.services.run_relay import relay_frames
+
+        poll = max(2, int(settings.run_heartbeat_interval_seconds or 15) // 2)
+        orphan_after = int(settings.run_orphan_threshold_seconds or 90)
+        q: asyncio.Queue = asyncio.Queue()
+
+        async def _pump() -> None:
+            try:
+                async for seq, frame in relay_frames(run_id, last_event_id):
+                    await q.put((seq, frame))
+            finally:
+                await q.put(None)  # relay ended (terminal frame delivered, or bus closed)
+
+        pump = asyncio.create_task(_pump(), name=f"ros-relay-pump:{run_id}")
+        started = time.monotonic()
+        try:
+            while True:
+                try:
+                    item = await asyncio.wait_for(q.get(), timeout=poll)
+                except asyncio.TimeoutError:
+                    st, hb = await self._run_status_and_heartbeat(run_id, tenant_id)
+                    if st is None or st in ("done", "error", "canceled", "interrupted"):
+                        return  # finished / parked elsewhere -> caller rebuilds from the DB
+                    stale = (
+                        (datetime.utcnow() - hb).total_seconds() > orphan_after
+                        if hb is not None
+                        else (time.monotonic() - started) > orphan_after  # grace for a not-yet-beating VM
+                    )
+                    if stale:
+                        yield {"event": "error", "data": {"message": _client_error(public, run_id, "run driver became unreachable")}}
+                        return
+                    continue  # still beating, just quiet
+                if item is None:
+                    return
+                seq, frame = item
+                yield {"id": str(seq), "event": frame["event"], "data": frame["data"]}
+        finally:
+            pump.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await pump
+
+    async def _run_status_and_heartbeat(self, run_id: str, tenant_id: str):
+        """(status, heartbeat_at) for one run under its tenant - the watchdog's liveness probe."""
+        set_current_tenant(tenant_id)
+        async with SessionLocal() as session:
+            row = (await session.execute(
+                select(Run.status, Run.heartbeat_at).where(Run.id == run_id, Run.tenant_id == tenant_id)
+            )).one_or_none()
+        return (row[0], row[1]) if row else (None, None)
 
     async def _reattach_from_db(
         self, run_id: str, tenant_id: str, project_id: str | None, public: bool,

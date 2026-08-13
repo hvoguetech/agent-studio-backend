@@ -7,6 +7,7 @@ falls back to a local drive. Off by default, so the normal interactive path is u
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
@@ -129,3 +130,37 @@ async def test_stream_falls_back_to_local_when_dispatch_fails(freestyle, monkeyp
     assert _ANSWER in (done["data"].get("answer") or "")
     async with SessionLocal() as s:
         assert (await s.get(Run, rid)).status == "done"
+
+
+async def test_relay_watchdog_surfaces_error_when_vm_goes_silent(freestyle, monkeypatch):
+    # A dispatched run whose VM never publishes and never beats: the relay watchdog must give up
+    # (past the orphan threshold) and surface a terminal error instead of hanging.
+    monkeypatch.setattr(settings, "run_heartbeat_interval_seconds", 2)
+    monkeypatch.setattr(settings, "run_orphan_threshold_seconds", 1)
+    t, p, rid = await _seed_queued_run()
+    async with SessionLocal() as s:
+        run = await s.get(Run, rid)
+        run.status = "running"  # claimed/dispatched elsewhere; heartbeat_at stays NULL
+        await s.commit()
+
+    rs = RunService()
+    frames = [f async for f in rs.stream(run_id=rid, tenant_id=t, project_id=p)]
+    assert any(f["event"] == "error" for f in frames)
+
+
+async def test_relay_watchdog_reattaches_terminal_when_finished_elsewhere(freestyle, monkeypatch):
+    # The run finishes on its VM (DB shows done) but no terminal frame reached this replica's bus:
+    # the watchdog detects the terminal DB status and rebuilds the done frame from the DB.
+    monkeypatch.setattr(settings, "run_heartbeat_interval_seconds", 2)
+    t, p, rid = await _seed_queued_run()
+    async with SessionLocal() as s:
+        run = await s.get(Run, rid)
+        run.status = "done"
+        run.ended_at = datetime.utcnow()
+        run.heartbeat_at = datetime.utcnow() - timedelta(seconds=5)
+        await s.commit()
+
+    rs = RunService()
+    # Force the relay path with status='running' (as stream() would have read it before the flip).
+    frames = [f async for f in rs._relay_or_reattach(rid, t, p, False, 0, "running")]
+    assert any(f["event"] == "done" for f in frames)
