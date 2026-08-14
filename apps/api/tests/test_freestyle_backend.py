@@ -111,6 +111,39 @@ async def test_dispatch_run_asks_svc_to_reuse_a_warm_vm_when_sticky():
     assert captured["body"]["stickyKey"] == "wf_agent" and captured["body"]["warm"] is True
 
 
+async def test_submit_records_executor_on_the_run(monkeypatch):
+    import uuid
+
+    from ros.db.base import SessionLocal
+    from ros.models import Run, Thread, Workflow
+
+    monkeypatch.setattr(settings, "freestyle_service_url", "http://svc")
+    monkeypatch.setattr(freestyle_control, "is_enabled", lambda: True)
+
+    t, p = f"t_{uuid.uuid4().hex[:8]}", f"p_{uuid.uuid4().hex[:8]}"
+    async with SessionLocal() as s:
+        wf = Workflow(tenant_id=t, project_id=p, name="w", executable={"nodes": [], "edges": []}, status="active")
+        s.add(wf)
+        await s.flush()
+        thread = Thread(tenant_id=t, project_id=p, workflow_id=wf.id, lg_thread_id="lg", meta={})
+        s.add(thread)
+        await s.flush()
+        run = Run(tenant_id=t, project_id=p, workflow_id=wf.id, thread_id=thread.id, status="queued", input={})
+        s.add(run)
+        await s.commit()
+        rid = run.id
+
+    async def fake_dispatch(**kw):
+        return {"vm_id": "vm_rec"}
+
+    monkeypatch.setattr(freestyle_control, "dispatch_run", fake_dispatch)
+    await FreestyleBackend().submit(run_id=rid, tenant_id=t, project_id=p)
+
+    async with SessionLocal() as s:
+        run = await s.get(Run, rid)
+        assert run.executor == {"driver": "freestyle", "vm_id": "vm_rec"}
+
+
 async def test_submit_keys_sticky_vm_by_agent_workflow_when_warm(monkeypatch):
     import uuid
 

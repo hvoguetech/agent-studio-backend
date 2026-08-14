@@ -1477,7 +1477,9 @@ class RunService:
             end_user_id=(eu or {}).get("id"),
             user_message=_last_user_text(run.input) or None,
             ai_response=_last_ai_text(values or {}) or None,
-            meta=({"end_user": eu} if eu else {}),
+            # Denormalize end-user + where the run ran (executor) onto the Trace so the Traces view
+            # is a single grouped query with no Run join at read time.
+            meta={**({"end_user": eu} if eu else {}), **({"executor": run.executor} if run.executor else {})},
         )
         session.add(trace)
         await session.flush()

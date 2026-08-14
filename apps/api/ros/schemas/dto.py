@@ -108,6 +108,8 @@ class TurnOut(BaseModel):
     total_tokens: int
     total_cost_usd: float
     started_at: datetime | None = None
+    # Where the run was driven: {"driver","vm_id"} for a per-run VM, else None (local/master).
+    executor: dict | None = None
 
 
 class ConversationDetailOut(BaseModel):

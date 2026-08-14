@@ -44,7 +44,26 @@ class FreestyleBackend(LocalBackend):
             master_url=settings.public_base_url, run_token=run_token, sticky_key=sticky_key,
             public=public, run_context=run_context,
         )
+        # Record WHERE the run executes (the receipt carries the vm_id) so the Traces view can show
+        # it ran on an isolated VM. Targeted UPDATE so it can't lose-update the VM's concurrent
+        # status/heartbeat writes.
+        await self._record_executor(run_id, tenant_id, receipt.get("vm_id"))
         return {"run_id": run_id, "status": "dispatched", "backend": "freestyle", **receipt}
+
+    async def _record_executor(self, run_id: str, tenant_id: str, vm_id: str | None) -> None:
+        from sqlalchemy import update
+
+        from ros.db.base import SessionLocal
+        from ros.db.scoping import set_current_tenant
+        from ros.models import Run
+
+        set_current_tenant(tenant_id)
+        async with SessionLocal() as session:
+            await session.execute(
+                update(Run).where(Run.id == run_id, Run.tenant_id == tenant_id)
+                .values(executor={"driver": "freestyle", "vm_id": vm_id})
+            )
+            await session.commit()
 
     async def _sticky_key(self, run_id: str, tenant_id: str) -> str | None:
         """The agent's stable warm-VM key = the run's workflow id (each agent gets its own VM)."""

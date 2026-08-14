@@ -295,6 +295,9 @@ class Run(PkTimestamp, Base):
     owner_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     heartbeat_at: Mapped[datetime | None] = mapped_column(nullable=True)
     reclaim_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # Where the run was driven: {"driver": "freestyle", "vm_id": ...} for a per-run VM, else NULL
+    # (local/master). Set at dispatch; denormalized onto Trace.meta at finalize for the Traces view.
+    executor: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class Trace(PkTimestamp, Base):

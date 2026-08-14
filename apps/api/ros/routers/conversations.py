@@ -24,6 +24,7 @@ def _turn(t) -> TurnOut:
         trace_id=t.id, run_id=t.run_id, source=t.source or "", user_message=t.user_message,
         ai_response=t.ai_response, status=t.status, error=t.error, latency_ms=t.latency_ms,
         total_tokens=t.total_tokens, total_cost_usd=t.total_cost_usd, started_at=t.started_at,
+        executor=(t.meta or {}).get("executor"),
     )
 
 

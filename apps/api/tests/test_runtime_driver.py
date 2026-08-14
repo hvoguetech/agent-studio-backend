@@ -10,8 +10,10 @@ import uuid
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 
+from sqlalchemy import select
+
 from ros.db.base import SessionLocal
-from ros.models import Run, Thread, Workflow
+from ros.models import Run, Thread, Trace, Workflow
 from ros.runtime.driver import drive_run
 from ros.services.run_relay import InMemoryRelayBus, _channel, set_relay_bus
 
@@ -71,6 +73,23 @@ async def test_drive_run_finalizes_db_and_mirrors_stream_to_bus(bus):
     assert events[0] == "run" and "done" in events
     done = [f["frame"] for f in frames if f["frame"]["event"] == "done"][-1]
     assert _ANSWER in (done["data"].get("answer") or "")
+
+
+async def test_drive_run_denormalizes_executor_onto_trace(bus):
+    # A run tagged with an executor (set at dispatch) surfaces it on the Trace.meta the driver
+    # writes at finalize - the data the Traces "ran on VM" badge reads.
+    t, p, rid = await _seed_queued_run()
+    async with SessionLocal() as s:
+        run = await s.get(Run, rid)
+        run.executor = {"driver": "freestyle", "vm_id": "vm_x"}
+        await s.commit()
+
+    await drive_run(run_id=rid, tenant_id=t, project_id=p, checkpointer=InMemorySaver())
+
+    async with SessionLocal() as s:
+        tr = (await s.execute(select(Trace).where(Trace.run_id == rid))).scalars().first()
+        assert tr is not None
+        assert (tr.meta or {}).get("executor") == {"driver": "freestyle", "vm_id": "vm_x"}
 
 
 async def test_drive_run_is_noop_streamwise_without_a_bus():
