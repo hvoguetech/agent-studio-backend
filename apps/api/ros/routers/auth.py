@@ -537,10 +537,22 @@ class ApiKeyCreateIn(BaseModel):
     name: str
     role: str = "editor"
     ttl_days: int | None = None
+    # Governed-subject "agent profile" (agent-profile merge): a default-deny capability allow-list
+    # ("*" = all) + a budget spend cap ({max_backends, ...}), and an optional owning project.
+    capabilities: list[str] = Field(default_factory=list)
+    budget: dict = Field(default_factory=dict)
+    project_id: str | None = None
+
+
+class ApiKeyUpdateIn(BaseModel):
+    # Only the provided fields are changed (the agent-profile editor patches capabilities/budget).
+    capabilities: list[str] | None = None
+    budget: dict | None = None
 
 
 def _apikey_out(k, *, plaintext: str | None = None) -> dict:
     out = {"id": k.id, "name": k.name, "role": k.role, "status": k.status, "prefix": k.prefix,
+           "capabilities": k.capabilities or [], "budget": k.budget or {}, "project_id": k.project_id,
            "last_used_at": k.last_used_at.isoformat() if k.last_used_at else None,
            "expires_at": k.expires_at.isoformat() if k.expires_at else None}
     if plaintext is not None:
@@ -572,6 +584,7 @@ async def create_api_key(body: ApiKeyCreateIn, request: Request,
         key, plaintext = await ApiKeyService.create(
             session, tenant_id=admin.tenant_id, name=body.name, role=body.role,
             created_by=admin.id, ttl_days=body.ttl_days,
+            capabilities=body.capabilities, budget=body.budget, project_id=body.project_id,
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
@@ -579,6 +592,25 @@ async def create_api_key(body: ApiKeyCreateIn, request: Request,
                            actor_email=admin.email, resource_type="api_key", resource_id=key.id,
                            ip=client_ip(request), meta={"name": key.name, "role": key.role})
     return _apikey_out(key, plaintext=plaintext)
+
+
+@apikeys_router.patch("/{key_id}", dependencies=[Depends(require_permission("apikey:write"))])
+async def update_api_key(key_id: str, body: ApiKeyUpdateIn, request: Request,
+                         session: AsyncSession = Depends(get_session),
+                         admin: CurrentUser = Depends(require_role("admin"))):
+    """Edit a key's governed-subject profile (capabilities allow-list / budget). Admin-only."""
+    from ros.services.apikeys import ApiKeyService
+
+    key = await ApiKeyService.update(
+        session, tenant_id=admin.tenant_id, key_id=key_id,
+        capabilities=body.capabilities, budget=body.budget,
+    )
+    if key is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "API key not found")
+    await AuditService.log(tenant_id=admin.tenant_id, action="apikey.update", actor_id=admin.id,
+                           actor_email=admin.email, resource_type="api_key", resource_id=key.id,
+                           ip=client_ip(request), meta=body.model_dump(exclude_none=True))
+    return _apikey_out(key)
 
 
 @apikeys_router.delete("/{key_id}", status_code=204, dependencies=[Depends(require_permission("apikey:write"))])

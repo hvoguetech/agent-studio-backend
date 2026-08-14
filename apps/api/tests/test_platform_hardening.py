@@ -247,6 +247,31 @@ async def test_api_key_lifecycle():
         assert (await c.get("/v1/projects", headers=kh)).status_code == 401
 
 
+async def test_api_key_governed_subject_profile_via_http():
+    """The 'agent profile' surface: create a key with a capability allow-list + budget cap, read
+    them back, and PATCH them (what the console's agent-profile editor drives)."""
+    async with _client() as c:
+        reg = (await c.post("/v1/auth/register", json={"email": _email(), "password": "supersecret1"})).json()
+        h = {"Authorization": f"Bearer {reg['access_token']}"}
+        created = await c.post("/v1/api-keys", json={
+            "name": "agent-key", "role": "editor",
+            "capabilities": ["run:read", "tool:web"], "budget": {"max_backends": 2},
+        }, headers=h)
+        assert created.status_code == 201, created.text
+        body = created.json()
+        key_id = body["id"]
+        assert body["capabilities"] == ["run:read", "tool:web"] and body["budget"] == {"max_backends": 2}
+
+        patched = await c.patch(f"/v1/api-keys/{key_id}",
+                                json={"capabilities": ["*"], "budget": {"max_backends": 5}}, headers=h)
+        assert patched.status_code == 200, patched.text
+        assert patched.json()["capabilities"] == ["*"] and patched.json()["budget"] == {"max_backends": 5}
+
+        listed = (await c.get("/v1/api-keys", headers=h)).json()
+        row = next(k for k in listed if k["id"] == key_id)
+        assert row["capabilities"] == ["*"] and row["budget"] == {"max_backends": 5}
+
+
 async def test_api_key_cannot_exceed_creator_role():
     async with _client() as c:
         # invite an editor, then that editor tries to mint an owner key

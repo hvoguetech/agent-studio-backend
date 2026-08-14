@@ -71,6 +71,28 @@ class ApiKeyService:
         return list(rows.scalars())
 
     @staticmethod
+    async def update(
+        session, *, tenant_id: str, key_id: str,
+        capabilities: list[str] | None = None, budget: dict | None = None,
+    ) -> ApiKey | None:
+        """Patch a key's governed-subject profile (capabilities allow-list / budget spend cap). Only
+        the fields provided (non-None) are changed; returns the updated row or None if not found."""
+        row = (
+            await session.execute(
+                select(ApiKey).where(ApiKey.tenant_id == tenant_id, ApiKey.id == key_id)
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        if capabilities is not None:
+            row.capabilities = capabilities
+        if budget is not None:
+            row.budget = budget
+        await session.commit()
+        await session.refresh(row)
+        return row
+
+    @staticmethod
     async def revoke(session, *, tenant_id: str, key_id: str) -> bool:
         row = (
             await session.execute(
