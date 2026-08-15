@@ -135,13 +135,14 @@ class ApiKeyService:
         return "*" in caps or capability in caps
 
     @staticmethod
-    async def runtime_env(session, key: ApiKey) -> dict[str, str]:
+    async def runtime_env(session, key: ApiKey, *, end_user_id: str | None = None) -> dict[str, str]:
         """The env the resources this key OWNS expose at runtime (ProvisionedBackend rows where
-        agent_id == key.id) — secret refs + endpoints. Empty when the key has no project scope."""
+        agent_id == key.id) — secret refs + endpoints. With `end_user_id` (forUser), the agent-shared
+        set ∪ that end user's private resources. Empty when the key has no project scope."""
         if not key.project_id:
             return {}
         from ros.services.backend_provisioning import runtime_env
-        return await runtime_env(session, key.tenant_id, key.project_id, agent_id=key.id)
+        return await runtime_env(session, key.tenant_id, key.project_id, agent_id=key.id, end_user_id=end_user_id)
 
     @staticmethod
     async def enforce_capacity(session, key: ApiKey) -> None:

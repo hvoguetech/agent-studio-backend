@@ -14,10 +14,11 @@ the Supabase-era names kept as thin wrappers.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ros.models import ProvisionedBackend
@@ -45,10 +46,16 @@ def is_enabled(kind: str = "supabase") -> bool:
         return False
 
 
-def _secret_name(kind: str, logical: str, agent_id: str | None) -> str:
-    """Per-agent secret name so agents in a project don't collide, and resources are isolated
-    (e.g. `supabase_database_url__<agent_id>`); project-scoped when there's no agent."""
-    return f"{kind}_{logical}__{agent_id}" if agent_id else f"{kind}_{logical}"
+def _secret_name(kind: str, logical: str, agent_id: str | None, end_user_id: str | None = None) -> str:
+    """Per-(agent, end-user) secret name so resources are isolated and don't collide
+    (e.g. `supabase_database_url__<agent_id>__u_<hash>`); project-scoped when there's no agent. The
+    end-user id is hashed so an arbitrary id (email/uuid) always yields a valid, bounded name."""
+    name = f"{kind}_{logical}"
+    if agent_id:
+        name += f"__{agent_id}"
+    if end_user_id:
+        name += f"__u_{hashlib.sha1(end_user_id.encode()).hexdigest()[:10]}"
+    return name
 
 
 async def provision_resource(
@@ -57,11 +64,13 @@ async def provision_resource(
     project_id: str,
     *,
     agent_id: str | None = None,
+    end_user_id: str | None = None,
     kind: str = "supabase",
     spec: dict | None = None,
     name: str | None = None,
 ) -> dict:
-    """Provision an isolated resource of `kind` for an agent and store its creds as secret refs.
+    """Provision an isolated resource of `kind` for an agent (optionally scoped to one END USER via
+    `end_user_id`, the forUser model) and store its creds as secret refs.
 
     Returns a handle: {backend_id, provider, project_ref, status, endpoint_url, secret_refs, config,
     + provider client-safe extras}. Secret values (service keys, DB URLs) live only as `secret://`
@@ -84,14 +93,14 @@ async def provision_resource(
         for logical, (value, skind) in outcome.secrets.items():
             if not value:
                 continue
-            nm = _secret_name(kind, logical, agent_id)
+            nm = _secret_name(kind, logical, agent_id, end_user_id)
             await SecretService.write(session, tenant_id, project_id, name=nm, value=value, kind=skind)
             written.append(nm)
             refs[logical] = f"secret://proj/{nm}"
 
         row = ProvisionedBackend(
-            tenant_id=tenant_id, project_id=project_id, agent_id=agent_id, provider=kind,
-            project_ref=outcome.external_id, status="active", region=spec.get("region"),
+            tenant_id=tenant_id, project_id=project_id, agent_id=agent_id, end_user_id=end_user_id,
+            provider=kind, project_ref=outcome.external_id, status="active", region=spec.get("region"),
             endpoint_url=outcome.endpoint_url, secret_refs=refs, config=outcome.config or {},
         )
         session.add(row)
@@ -123,12 +132,13 @@ async def provision_resource(
 
 async def provision_backend(
     session: AsyncSession, tenant_id: str, project_id: str,
-    *, agent_id: str | None = None, spec: dict | None = None, name: str | None = None,
+    *, agent_id: str | None = None, end_user_id: str | None = None,
+    spec: dict | None = None, name: str | None = None,
 ) -> dict:
     """Convenience wrapper: kind is taken from spec.provider, default 'railway-postgres'."""
     spec = spec or {}
     return await provision_resource(
-        session, tenant_id, project_id, agent_id=agent_id,
+        session, tenant_id, project_id, agent_id=agent_id, end_user_id=end_user_id,
         kind=(spec.get("provider") or "railway-postgres"), spec=spec, name=name,
     )
 
@@ -170,20 +180,35 @@ teardown_backend = teardown_resource
 
 
 async def runtime_env(
-    session: AsyncSession, tenant_id: str, project_id: str, *, agent_id: str
+    session: AsyncSession, tenant_id: str, project_id: str, *, agent_id: str,
+    end_user_id: str | None = None,
 ) -> dict[str, str]:
     """The environment an agent's provisioned resources expose AT RUNTIME: standard env var name ->
-    a `secret://` ref (creds) or endpoint URL. Union across all the agent's active resources — this
-    is how a running agent (its tools/code, and any Railway service / Freestyle VM it owns) reaches
-    the DB / queue / sandbox / service it provisioned. Isolated per agent (agent_id-scoped)."""
+    a `secret://` ref (creds) or endpoint URL. This is how a running agent (its tools/code, and any
+    Railway service / Freestyle VM it owns) reaches the DB / queue / sandbox / service it provisioned.
+
+    Isolated per agent (agent_id-scoped). With `end_user_id` set (the forUser model), returns the
+    agent-SHARED resources (end_user_id NULL) UNION this end user's private ones, with the end user's
+    overriding the shared on an env-var collision — so an agent serving many users gets each user's
+    own isolated data while still sharing the agent-level infra. Without it, only the shared set."""
+    if end_user_id is None:
+        eu_cond = ProvisionedBackend.end_user_id.is_(None)
+    else:
+        eu_cond = or_(
+            ProvisionedBackend.end_user_id.is_(None),
+            ProvisionedBackend.end_user_id == end_user_id,
+        )
     rows = (await session.execute(
         select(ProvisionedBackend).where(
             ProvisionedBackend.tenant_id == tenant_id,
             ProvisionedBackend.project_id == project_id,
             ProvisionedBackend.agent_id == agent_id,
             ProvisionedBackend.status == "active",
+            eu_cond,
         )
-    )).scalars()
+    )).scalars().all()
+    # Shared (end_user_id NULL) first so this end user's resources override on a collision.
+    rows.sort(key=lambda r: r.end_user_id is not None)
     env: dict[str, str] = {}
     for r in rows:
         for logical, ref in (r.secret_refs or {}).items():
@@ -198,12 +223,13 @@ async def runtime_env(
 
 
 async def resolved_runtime_env(
-    session: AsyncSession, tenant_id: str, project_id: str, *, agent_id: str
+    session: AsyncSession, tenant_id: str, project_id: str, *, agent_id: str,
+    end_user_id: str | None = None,
 ) -> dict[str, str]:
     """`runtime_env` with `secret://` refs RESOLVED to their values (endpoint URLs pass through) —
     the actual env injected into an agent's compute (e.g. a Freestyle VM) so the ros runtime inside
     it can connect to its durable resources. A ref that can't be read is skipped, not fatal."""
-    refs = await runtime_env(session, tenant_id, project_id, agent_id=agent_id)
+    refs = await runtime_env(session, tenant_id, project_id, agent_id=agent_id, end_user_id=end_user_id)
     out: dict[str, str] = {}
     for var, val in refs.items():
         if isinstance(val, str) and val.startswith(("secret://", "vault://")):

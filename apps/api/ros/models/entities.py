@@ -191,6 +191,9 @@ class ProvisionedBackend(PkTimestamp, Base):
     tenant_id: Mapped[str] = mapped_column(String(36), index=True)
     project_id: Mapped[str] = mapped_column(String(36), index=True)
     agent_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+    # Per-end-user isolation (forUser): a resource owned by (agent_id, end_user_id) is that end
+    # user's private substrate; NULL = agent-shared. At runtime an agent gets shared ∪ this-user's.
+    end_user_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
     provider: Mapped[str] = mapped_column(String(30), default="supabase")  # supabase|railway|queue
     project_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)  # provider resource id
     status: Mapped[str] = mapped_column(String(20), default="provisioning")  # provisioning|active|failed|deleted

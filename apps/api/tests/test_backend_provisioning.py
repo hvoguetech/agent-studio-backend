@@ -173,3 +173,29 @@ async def test_runtime_env_exposes_agent_resources_and_is_isolated(monkeypatch):
         other = await bp.runtime_env(s, "t_env", "p_env", agent_id="someone-else")
     assert other == {}
 
+
+async def test_runtime_env_isolates_per_end_user_forUser(monkeypatch):
+    """forUser: an agent-shared resource + a private one per end user. At runtime each end user gets
+    the shared set OVERRIDDEN by their own private resource, and never sees another user's."""
+    monkeypatch.setattr(settings, "supabase_management_token", "tok")
+    monkeypatch.setattr(settings, "supabase_default_org_id", "org1")
+    _patch_supa(monkeypatch)
+    sup = {"provider": "supabase"}
+    async with SessionLocal() as s:
+        await bp.provision_resource(s, "t_fu", "p_fu", agent_id="agentF", kind="supabase", spec=sup)
+        await bp.provision_resource(s, "t_fu", "p_fu", agent_id="agentF", end_user_id="alice", kind="supabase", spec=sup)
+        await bp.provision_resource(s, "t_fu", "p_fu", agent_id="agentF", end_user_id="bob", kind="supabase", spec=sup)
+
+        shared = await bp.runtime_env(s, "t_fu", "p_fu", agent_id="agentF")                      # no end user
+        alice = await bp.runtime_env(s, "t_fu", "p_fu", agent_id="agentF", end_user_id="alice")
+        bob = await bp.runtime_env(s, "t_fu", "p_fu", agent_id="agentF", end_user_id="bob")
+
+    # No end user -> only the agent-shared resource (no per-user hash suffix).
+    assert shared["DATABASE_URL"] == "secret://proj/supabase_database_url__agentF"
+    # alice sees the shared key OVERRIDDEN by her own private resource...
+    assert alice["DATABASE_URL"].startswith("secret://proj/supabase_database_url__agentF__u_")
+    assert alice["DATABASE_URL"] != shared["DATABASE_URL"]
+    # ...and bob gets a DISTINCT private resource (per-end-user isolation).
+    assert bob["DATABASE_URL"].startswith("secret://proj/supabase_database_url__agentF__u_")
+    assert bob["DATABASE_URL"] != alice["DATABASE_URL"]
+
