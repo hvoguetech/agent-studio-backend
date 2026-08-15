@@ -301,6 +301,11 @@ class Run(PkTimestamp, Base):
     # Where the run was driven: {"driver": "freestyle", "vm_id": ...} for a per-run VM, else NULL
     # (local/master). Set at dispatch; denormalized onto Trace.meta at finalize for the Traces view.
     executor: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # The governed subject this run acts as: the API key id (ApiKey.id) when the run was created by
+    # an API-key principal, else NULL (console/JWT, service token, webhook, schedule, embed, and MCP
+    # PAT runs carry no governed subject). Lets dispatch inject the agent's provisioned, per-(agent,
+    # end_user) credentials into the run (2b). Nullable/back-fills safely; matches ProvisionedBackend.agent_id.
+    agent_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
 class Trace(PkTimestamp, Base):

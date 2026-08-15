@@ -33,6 +33,7 @@ from ros.deps import (
     get_current_user,
     get_run_service,
     get_session,
+    governed_subject_id,
     run_context,
 )
 from ros.models import Project, Run, Thread, Workflow
@@ -175,6 +176,9 @@ async def project_run(
             run = await run_service.create_run(
                 session, tenant_id=tenant_id, project_id=project_id, workflow_id=wf.id,
                 input=body.input or {}, thread_id=body.thread_id, end_user=end_user, source="api",
+                # Server-to-server Run API: the governed subject is the calling API key (else None
+                # for JWT/service callers). This is the primary path 2b injects credentials for.
+                agent_id=governed_subject_id(user),
             )
     except QuotaExceeded as e:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, e.message) from e

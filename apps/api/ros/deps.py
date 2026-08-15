@@ -101,6 +101,20 @@ async def get_current_user(request: Request) -> CurrentUser:
     return CurrentUser(id="system-dev", tenant_id=tenant_id, role="owner", email="you@ros.local", is_fallback=True)
 
 
+_APIKEY_PREFIX = "apikey:"
+
+
+def governed_subject_id(user: CurrentUser) -> str | None:
+    """The governed-subject key id (ApiKey.id) a run created by this principal acts as, or None.
+
+    Populated only when the principal is an API key (identity `apikey:<key.id>`, set in
+    get_current_user); the key id is the provisioning/governance subject that owns the run's
+    ProvisionedBackend resources. Console/JWT users, the static service token, and the dev
+    fallback carry no governed subject -> None.
+    """
+    return user.id[len(_APIKEY_PREFIX):] if user.id.startswith(_APIKEY_PREFIX) else None
+
+
 def current_tenant_id(user: CurrentUser = Depends(get_current_user)) -> str:
     # Bind the tenant for this request so the Postgres RLS GUC listener (ros.db.base) sets
     # app.current_tenant on every transaction that follows in the route body. No-op on SQLite.

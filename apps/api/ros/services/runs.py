@@ -479,6 +479,7 @@ class RunService:
     async def create_run(
         self, session, *, tenant_id: str, project_id: str, workflow_id: str, input: dict,
         thread_id: str | None = None, end_user: dict | None = None, source: str = "playground",
+        agent_id: str | None = None,
     ) -> Run:
         set_current_tenant(tenant_id)  # bind tenant for the Postgres RLS GUC (no-op on SQLite)
         # Enforce the tenant's daily spend ceiling on EVERY run-creation path - webhook / email /
@@ -557,6 +558,9 @@ class RunService:
             status="queued",
             input=input or {},
             source=source,
+            # Governed subject this run acts as (ApiKey.id), or None for non-key principals. Consumed
+            # at dispatch to inject the agent's provisioned per-(agent, end_user) credentials (2b).
+            agent_id=agent_id,
         )
         session.add(run)
         await session.commit()

@@ -17,6 +17,7 @@ from ros.deps import (
     get_current_user,
     get_run_service,
     get_session,
+    governed_subject_id,
     require_role,
     run_context,
 )
@@ -81,6 +82,9 @@ async def create_run(
                 thread_id=body.thread_id,
                 end_user=end_user,
                 source="playground",
+                # An API-key principal on the console run surface still records its governed subject;
+                # operator (JWT/service/dev) runs record None.
+                agent_id=governed_subject_id(user),
             )
     except QuotaExceeded as e:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, e.message) from e
@@ -143,6 +147,9 @@ async def rerun(
     run = await run_service.create_run(
         session, tenant_id=tenant_id, project_id=project_id, workflow_id=workflow_id, input=orig.input or {},
         source=getattr(orig, "source", None) or "playground",
+        # A replay acts as the SAME governed subject as the original run, so its provisioned
+        # credentials resolve identically at dispatch (2b) regardless of who triggered the rerun.
+        agent_id=getattr(orig, "agent_id", None),
     )
     return RunOut(id=run.id, status=run.status, thread_id=run.thread_id)
 
