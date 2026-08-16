@@ -5,7 +5,7 @@ Three layers:
 2. validate every node `config` against its node-type schema, and every middleware
    entry `config` against its per-type schema.
 3. structural rules: entry exists, edge endpoints exist, no orphans, a path to END,
-   and cycles only through nodes whose `NodeSpec.allows_cycle` is true.
+   and every cycle is bounded by at least one `NodeSpec.allows_cycle` (loop) node.
 
 Returns field-pointer errors so the UI can jump to the offending control.
 """
@@ -82,7 +82,13 @@ def _adjacency(definition: dict) -> dict[str, set[str]]:
 
 
 def _find_bad_cycle(adj: dict[str, set[str]], node_types: dict[str, str]) -> list[str] | None:
-    """Return a cycle (list of node ids) that passes through a non-cycle node, else None."""
+    """Return an UNBOUNDED cycle (list of node ids), else None.
+
+    A cycle is legal iff it contains at least one `allows_cycle` node (a `loop`), which bounds
+    the iteration via max_iter/condition — that's the documented body-loop pattern
+    (loop → body → loop). A cycle with NO loop node is an accidental infinite loop and is
+    reported. (Previously this required EVERY node in the cycle to allow cycles, which
+    contradicted the loop node's own purpose and rejected valid body loops.)"""
     WHITE, GRAY, BLACK = 0, 1, 2
     color = dict.fromkeys(adj, WHITE)
     stack: list[str] = []
@@ -95,7 +101,8 @@ def _find_bad_cycle(adj: dict[str, set[str]], node_types: dict[str, str]) -> lis
                 continue
             if color[v] == GRAY:  # back edge -> cycle from v..u
                 cycle = stack[stack.index(v):]
-                if any(not _allows_cycle(node_types.get(n)) for n in cycle):
+                # Bad only if NO loop node bounds this cycle (else it's a valid body loop).
+                if not any(_allows_cycle(node_types.get(n)) for n in cycle):
                     return cycle
             elif color[v] == WHITE:
                 found = dfs(v)
