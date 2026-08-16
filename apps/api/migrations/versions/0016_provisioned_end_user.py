@@ -4,15 +4,19 @@ Adds a nullable `end_user_id` to `provisioned_backends` so a resource can be own
 (agent_id, end_user_id) - that end user's private substrate - with NULL meaning agent-shared. At
 runtime an agent gets shared ∪ this-user's resources. Idempotent add_column.
 
-Revision ID: 0016_provisioned_backend_end_user
+Revision ID: 0016_provisioned_end_user
 Revises: 0015_run_executor
 Create Date: 2026-08-15
+
+NOTE: revision id kept <= 32 chars — alembic's default `alembic_version.version_num`
+column is VARCHAR(32); the longer slug (`0016_provisioned_backend_end_user`) overflowed
+it and rolled back the whole upgrade in production.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0016_provisioned_backend_end_user"
+revision = "0016_provisioned_end_user"
 down_revision = "0015_run_executor"
 branch_labels = None
 depends_on = None

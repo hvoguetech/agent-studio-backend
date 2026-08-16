@@ -6,7 +6,7 @@ embed, MCP PAT). Prerequisite for injecting the agent's provisioned per-(agent, 
 credentials into a live run (2b). Idempotent add_column; back-fills existing rows as NULL.
 
 Revision ID: 0017_run_agent_id
-Revises: 0016_provisioned_backend_end_user
+Revises: 0016_provisioned_end_user
 Create Date: 2026-08-16
 """
 
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0017_run_agent_id"
-down_revision = "0016_provisioned_backend_end_user"
+down_revision = "0016_provisioned_end_user"
 branch_labels = None
 depends_on = None
 
