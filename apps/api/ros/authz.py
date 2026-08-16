@@ -69,6 +69,8 @@ PERMISSIONS: dict[str, str] = {
     "mcp_token:self": ANY,
     "model:read": VIEWER,
     "node:read": VIEWER,
+    "pm:belief_read": VIEWER,
+    "pm:belief_write": EDITOR,
     "pricing:read": ADMIN,
     "pricing:write": ADMIN,
     "project:members": ADMIN,

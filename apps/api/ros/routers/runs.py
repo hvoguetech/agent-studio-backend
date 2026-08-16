@@ -209,6 +209,51 @@ async def retry_run(
     return result
 
 
+@router.get("/{run_id}/beliefs", dependencies=[Depends(require_permission("pm:belief_read"))])
+async def get_run_beliefs(
+    project_id: str,
+    workflow_id: str,
+    run_id: str,
+    session: AsyncSession = Depends(get_session),
+    tenant_id: str = Depends(current_tenant_id),
+    run_service: RunService = Depends(get_run_service),
+):
+    """Read a PM run's persisted belief graph (from the checkpointer) plus the backward walk
+    for every recommendation — the 'why do you believe this?' governance surface. Gated by
+    `pm:belief_read`; tenant-scoped via the run row + RLS."""
+    from sqlalchemy import select
+
+    from ros.models import Run
+    from ros.pm import belief as B
+
+    run = (await session.execute(select(Run).where(
+        Run.tenant_id == tenant_id,
+        Run.project_id == project_id,
+        Run.workflow_id == workflow_id,
+        Run.id == run_id,
+    ))).scalar_one_or_none()
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "run not found")
+
+    beliefs: dict | None = None
+    cp = getattr(run_service, "checkpointer", None)
+    if cp is not None and run.thread_id:
+        tup = await cp.aget_tuple({"configurable": {"thread_id": run.thread_id}})
+        values = (getattr(tup, "checkpoint", None) or {}).get("channel_values", {}) if tup else {}
+        beliefs = values.get("beliefs")
+
+    explain = []
+    summary = None
+    if beliefs:
+        summary = B.summarize(beliefs)
+        explain = [
+            B.explain(beliefs, cid)
+            for cid, c in (beliefs.get("claims") or {}).items()
+            if c.get("type") == "recommendation"
+        ]
+    return {"run_id": run_id, "thread_id": run.thread_id, "beliefs": beliefs, "summary": summary, "explain": explain}
+
+
 @router.post("/{run_id}/cancel", dependencies=[Depends(require_permission("run:execute"))])
 async def cancel_run(
     project_id: str,
