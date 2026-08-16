@@ -78,6 +78,16 @@ class CompileContext:
     # is embedded in the prompt and stored on the thread).
     run_context: dict = field(default_factory=dict)
 
+    # The agent's provisioned, per-(agent, end_user) resource environment (per-end-user isolation
+    # 2b): standard env var name -> RESOLVED value (e.g. DATABASE_URL, REDIS_URL, endpoint URLs) for
+    # the durable resources this run's governed subject (Run.agent_id) provisioned — the agent-shared
+    # set UNION this end_user's private set. Empty for runs with no governed subject (operator /
+    # console / JWT / service). This is the leak-safe channel: it is per-run state on the context, so
+    # concurrent runs on shared master never see each other's creds. On an isolated single-run VM the
+    # runtime entrypoint additionally exports these to os.environ so the agent's own code/tools reach
+    # its resources (ros.runtime.env.apply_runtime_env); that export never runs on master.
+    runtime_env: dict[str, str] = field(default_factory=dict)
+
     # Project-level default middleware, prepended to every agent stack (Doc 2 §8).
     project_default_mw: list[dict] = field(default_factory=list)
 

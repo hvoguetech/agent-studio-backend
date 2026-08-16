@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "ProvisionError", "is_enabled", "provision_resource", "provision_backend",
     "teardown_resource", "teardown_backend", "runtime_env", "resolved_runtime_env",
+    "runtime_env_for_run",
 ]
 
 
@@ -244,3 +245,26 @@ async def resolved_runtime_env(
         else:
             out[var] = val
     return out
+
+
+async def runtime_env_for_run(session: AsyncSession, *, run_id: str, tenant_id: str) -> dict[str, str]:
+    """The resolved provisioned-resource env for a RUN: its governed subject (Run.agent_id) scoped to
+    the run's bound end_user (agent-shared UNION that end_user's private set). Empty when the run has
+    no governed subject (operator/console/JWT run) — those inject nothing.
+
+    Convenience wrapper the VM runtime entrypoint uses to export the agent's env to os.environ before
+    driving, given only a run id; mirrors what build_compile_context injects on the DB path (2b)."""
+    from ros.models import Run, Thread
+
+    run = (await session.execute(
+        select(Run).where(Run.id == run_id, Run.tenant_id == tenant_id)
+    )).scalar_one_or_none()
+    if run is None or not run.agent_id:
+        return {}
+    thread = (await session.execute(
+        select(Thread).where(Thread.id == run.thread_id, Thread.tenant_id == tenant_id)
+    )).scalar_one_or_none()
+    eu_id = str((((thread.meta if thread else None) or {}).get("end_user") or {}).get("id") or "") or None
+    return await resolved_runtime_env(
+        session, tenant_id, run.project_id, agent_id=run.agent_id, end_user_id=eu_id,
+    )

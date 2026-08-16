@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ros.authz import public_endpoint
 from ros.db.scoping import set_current_tenant
 from ros.deps import get_session
-from ros.models import Run
+from ros.models import Run, Thread
 from ros.security import TokenError, decode_token
 from ros.services.runtime_manifest import RuntimeManifestService
 
@@ -48,9 +48,16 @@ async def get_run_manifest(
     )).scalar_one_or_none()
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"run {run_id} not found")
+    # The run's bound end user (from its thread) scopes the provisioned per-end-user resource env in
+    # the manifest (2b); the governed subject is Run.agent_id (NULL for operator runs -> no env).
+    thread = (await session.execute(
+        select(Thread).where(Thread.id == run.thread_id, Thread.tenant_id == tenant_id)
+    )).scalar_one_or_none()
+    eu_id = str((((thread.meta if thread else None) or {}).get("end_user") or {}).get("id") or "") or None
     try:
         return await RuntimeManifestService.build(
-            session, tenant_id=tenant_id, project_id=run.project_id, workflow_id=run.workflow_id
+            session, tenant_id=tenant_id, project_id=run.project_id, workflow_id=run.workflow_id,
+            agent_id=run.agent_id, end_user_id=eu_id,
         )
     except LookupError as e:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e

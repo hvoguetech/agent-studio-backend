@@ -43,9 +43,16 @@ def _collect_secret_refs(obj, out: set[str]) -> None:
 
 class RuntimeManifestService:
     @staticmethod
-    async def build(session, *, tenant_id: str, project_id: str, workflow_id: str) -> dict:
+    async def build(
+        session, *, tenant_id: str, project_id: str, workflow_id: str,
+        agent_id: str | None = None, end_user_id: str | None = None,
+    ) -> dict:
         """Assemble the RunManifest for a workflow. Raises LookupError if the project/workflow is
-        missing (or belongs to another tenant)."""
+        missing (or belongs to another tenant).
+
+        `agent_id` (the run's governed subject) + `end_user_id` scope the provisioned-resource env
+        the manifest carries (2b): with a governed subject, `runtime_env` is the RESOLVED env of the
+        agent-shared UNION this end_user's private resources; without one it is empty."""
         project = (await session.execute(
             select(Project).where(Project.id == project_id, Project.tenant_id == tenant_id)
         )).scalar_one_or_none()
@@ -156,6 +163,18 @@ class RuntimeManifestService:
         if cap_cfg and not any(isinstance(e, dict) and e.get("type") == "tenant_budget" for e in default_mw):
             default_mw = [{"type": "tenant_budget", "config": {**cap_cfg, "on_exceed": "end"}}, *default_mw]
 
+        # Per-end-user isolation (2b): the agent's RESOLVED provisioned-resource env, scoped by the
+        # run's governed subject + end_user. Empty when the manifest is built without a governed
+        # subject (operator run). The runtime exports these to os.environ before driving so the
+        # agent reaches its own DB/queue/etc.
+        runtime_env: dict[str, str] = {}
+        if agent_id:
+            from ros.services.backend_provisioning import resolved_runtime_env
+
+            runtime_env = await resolved_runtime_env(
+                session, tenant_id, project_id, agent_id=agent_id, end_user_id=end_user_id,
+            )
+
         return {
             "format": MANIFEST_FORMAT,
             "tenant_id": tenant_id,
@@ -174,4 +193,5 @@ class RuntimeManifestService:
             "agent_presets": agent_presets,
             "workflows": workflows,
             "secrets": secrets,  # run-scoped resolved refs for tool call-time auth on the runtime
+            "runtime_env": runtime_env,  # resolved provisioned-resource env (2b), scoped by agent+end_user
         }

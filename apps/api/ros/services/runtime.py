@@ -43,7 +43,7 @@ def _tool_cfg(t: Tool) -> dict:
 
 async def build_compile_context(
     session, *, tenant_id: str, project_id: str, checkpointer=None, store=None,
-    end_user: dict | None = None, run_context: dict | None = None,
+    end_user: dict | None = None, run_context: dict | None = None, agent_id: str | None = None,
 ) -> CompileContext:
     # Scope the project load by tenant too (audit H4): callers pass the CALLER's tenant_id, so a
     # cross-tenant project_id resolves to None here (empty config) instead of loading another
@@ -104,6 +104,19 @@ async def build_compile_context(
     # Ephemeral per-run injected context (never persisted, never prompted); consumed by tools
     # for {{ctx.<key>}} templating and by the auth resolver. See CompileContext.run_context.
     ctx.run_context = run_context or {}
+
+    # Per-end-user isolation (2b): a run created by a governed subject (Run.agent_id) gets the
+    # RESOLVED env of the resources that subject provisioned — agent-shared UNION this end_user's
+    # private set, scoped by (tenant, project, agent, end_user). Operator runs (agent_id None) get
+    # nothing. Only the last-write-wins per env var; see resolved_runtime_env for the union rules.
+    if agent_id:
+        from ros.services.backend_provisioning import resolved_runtime_env
+
+        eu_id = (end_user or {}).get("id")
+        ctx.runtime_env = await resolved_runtime_env(
+            session, tenant_id, project_id, agent_id=agent_id,
+            end_user_id=str(eu_id) if eu_id else None,
+        )
 
     rows = (
         await session.execute(
@@ -249,6 +262,10 @@ def build_compile_context_from_manifest(
     ctx.egress_policy = EgressPolicy.from_settings(manifest.get("egress"))
     ctx.end_user = end_user or None
     ctx.run_context = run_context or {}
+    # Per-end-user isolation (2b): the agent's resolved provisioned resource env, precomputed by
+    # RuntimeManifestService.build (scoped by agent + the run's end_user) so the DB-less runtime
+    # gets the same isolation as the DB path. Empty for a manifest built without a governed subject.
+    ctx.runtime_env = manifest.get("runtime_env") or {}
 
     registry: dict[str, object] = {}
     specs: dict[str, dict] = {}

@@ -46,6 +46,7 @@ def main(argv: list[str] | None = None) -> int:
 
 async def _run(args) -> int:
     from ros.runtime.client import fetch_manifest, load_manifest_file
+    from ros.runtime.env import apply_runtime_env
     from ros.runtime.runner import run
 
     if args.manifest_file:
@@ -55,6 +56,10 @@ async def _run(args) -> int:
     else:
         print("error: pass --manifest-file OR --master-url + --run-id + --token", file=sys.stderr)
         return 2
+
+    # 2b: export the agent's provisioned per-(agent, end_user) resource env (carried in the manifest)
+    # into THIS process so the agent's code/tools reach its own DB/queue/etc. VM-only (single run).
+    apply_runtime_env(manifest.get("runtime_env"))
 
     thread_id = args.thread_id if args.thread_id != "run" else (args.run_id or "run")
     result = await run(manifest, json.loads(args.input), thread_id=thread_id)
@@ -66,11 +71,31 @@ async def _drive(args) -> int:
     import os
 
     from ros.runtime.driver import drive_run
+    from ros.runtime.env import apply_runtime_env
 
     resume_value = json.loads(args.resume_value) if args.resume_value else None
     # Per-run context is passed as a JSON env by the dispatcher (avoids shell-quoting in the command).
     rc_raw = os.environ.get("ROS_RUN_CONTEXT")
     run_context = json.loads(rc_raw) if rc_raw else None
+
+    # 2b: resolve + export this run's provisioned per-(agent, end_user) resource env into the process
+    # BEFORE driving, so the agent's code/tools reach its own DB/queue/etc. The trusted-VM driver
+    # reads from the shared DB, so resolve straight from it here. VM-only (single run); a no-op for
+    # an operator run (no governed subject). Best-effort: a resolution failure must not block the run.
+    try:
+        from ros.db.base import SessionLocal
+        from ros.db.scoping import set_current_tenant
+        from ros.services.backend_provisioning import runtime_env_for_run
+
+        set_current_tenant(args.tenant)
+        async with SessionLocal() as s:
+            env = await runtime_env_for_run(s, run_id=args.run_id, tenant_id=args.tenant)
+        apply_runtime_env(env)
+    except Exception:  # noqa: BLE001 - never let env export abort the run; it degrades, not fails
+        import logging
+
+        logging.getLogger("ros.runtime").warning("could not apply runtime env for %s", args.run_id, exc_info=True)
+
     await drive_run(
         run_id=args.run_id, tenant_id=args.tenant, project_id=args.project,
         public=args.public, run_context=run_context,
