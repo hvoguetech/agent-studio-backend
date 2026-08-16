@@ -55,6 +55,9 @@ class RecentRunOut(BaseModel):
     latency_ms: int
     cost_usd: float
     started_at: str | None = None
+    # Where the run ran ({"driver": "freestyle", "vm_id": ...}), for the "ran on VM" badge — the
+    # same executor the Traces turn carries. None (the default) means it ran locally / on master.
+    executor: dict | None = None
 
 
 class ProjectCardStatsOut(BaseModel):
@@ -239,6 +242,7 @@ async def dashboard(session: AsyncSession = Depends(get_session), tenant_id: str
         select(
             Trace.id, Trace.workflow_id, Trace.project_id, Trace.status,
             Trace.total_tokens, Trace.latency_ms, Trace.total_cost_usd, Trace.started_at,
+            Trace.meta,
         ).where(tenant).order_by(Trace.started_at.desc()).limit(8)
     )).all()
     recent = [
@@ -251,6 +255,8 @@ async def dashboard(session: AsyncSession = Depends(get_session), tenant_id: str
             "latency_ms": r.latency_ms,
             "cost_usd": round(r.total_cost_usd or 0.0, 6),
             "started_at": r.started_at.isoformat() if r.started_at else None,
+            # Denormalized at finalize onto Trace.meta; same source the Traces turn reads.
+            "executor": (r.meta or {}).get("executor"),
         }
         for r in recent_rows
     ]
@@ -506,6 +512,7 @@ async def project_analytics(
         select(
             Trace.id, Trace.workflow_id, Trace.name, Trace.status,
             Trace.total_tokens, Trace.latency_ms, Trace.total_cost_usd, Trace.started_at,
+            Trace.meta,
         ).where(*scope, _ACTIVITY >= since).order_by(Trace.started_at.desc()).limit(8)
     )).all()
     recent = [
@@ -518,6 +525,8 @@ async def project_analytics(
             "latency_ms": r.latency_ms,
             "cost_usd": round(r.total_cost_usd or 0.0, 6),
             "started_at": r.started_at.isoformat() if r.started_at else None,
+            # Denormalized at finalize onto Trace.meta; same source the Traces turn reads.
+            "executor": (r.meta or {}).get("executor"),
         }
         for r in recent_rows
     ]

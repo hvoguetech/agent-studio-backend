@@ -205,3 +205,44 @@ async def test_project_analytics():
     # Recent activity feed: the 4 in-window runs, newest first.
     assert len(a["recent"]) == 4
     assert a["recent"][0]["status"] == "done"      # T1, most recent
+
+
+# --- "ran on VM" badge: executor on the recent-runs feeds (frontend #2) --------------------
+# Isolated tenant so it can't collide with the hand-computed rollup fixtures above.
+ETENANT = "t_exec"
+
+
+async def test_recent_runs_carry_executor_for_the_vm_badge():
+    now = datetime.utcnow()
+    async with SessionLocal() as s:
+        p = Project(tenant_id=ETENANT, name="Alpha", slug="alpha-exec")
+        s.add(p)
+        await s.flush()
+        w = Workflow(tenant_id=ETENANT, project_id=p.id, name="Support")
+        s.add(w)
+        await s.flush()
+        # One run drove on a VM (executor denormalized onto Trace.meta at finalize)...
+        s.add(Trace(
+            tenant_id=ETENANT, project_id=p.id, workflow_id=w.id, run_id="rVM", name="run",
+            status="done", total_tokens=1, total_cost_usd=0.0, latency_ms=10,
+            started_at=now - timedelta(minutes=1),
+            meta={"executor": {"driver": "freestyle", "vm_id": "vm_9"}},
+        ))
+        # ...the other ran locally (no executor -> the badge is absent).
+        s.add(Trace(
+            tenant_id=ETENANT, project_id=p.id, workflow_id=w.id, run_id="rLocal", name="run",
+            status="done", total_tokens=1, total_cost_usd=0.0, latency_ms=10,
+            started_at=now - timedelta(minutes=2), meta={},
+        ))
+        await s.commit()
+        pid = p.id
+
+    async with SessionLocal() as s:
+        d = await dashboard(session=s, tenant_id=ETENANT)
+        a = await project_analytics(project_id=pid, days=30, session=s, tenant_id=ETENANT)
+
+    for feed in (d["recent"], a["recent"]):
+        vm = next(r for r in feed if r["executor"])
+        assert vm["executor"] == {"driver": "freestyle", "vm_id": "vm_9"}
+        # the local run exposes executor=None (no badge), never a missing key
+        assert any("executor" in r and r["executor"] is None for r in feed)
