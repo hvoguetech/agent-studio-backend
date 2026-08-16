@@ -97,6 +97,9 @@ async def test_pm_workflow_compiles_and_runs():
     assert rels == {"supported_by", "contradicted_by"}
 
 
+# Mirrors the console's `pmReasoningWorkflow()` generator (lib/graph.ts) — keep in sync.
+# ACYCLIC: the validator only permits cycles through `allows_cycle` nodes, so there is no
+# loop-back edge; iteration happens by re-running the workflow (design-doc: loop via re-invoke).
 _FULL_TEMPLATE = {
     "id": "pm_full", "version": 1,
     "state": {
@@ -108,8 +111,6 @@ _FULL_TEMPLATE = {
         "pm_route": {"type": "str", "reducer": "last"},
         "can_make_progress": {"type": "bool", "reducer": "last"},
         "answer": {"type": "str", "reducer": "last"},
-        "_loop": {"type": "str", "reducer": "last"},
-        "_loop_count": {"type": "int", "reducer": "last"},
         "_ask_ack": {"type": "str", "reducer": "last"},
     },
     "entry_node": "start",
@@ -133,9 +134,7 @@ _FULL_TEMPLATE = {
         {"id": "decide", "type": "pm_reason", "config": {"step": "decide_progress"}},
         {"id": "route", "type": "router", "config": {"expression": "pm_route", "cases": {"produce": "produce", "ask": "ask"}, "default": "produce"}},
         {"id": "produce", "type": "pm_reason", "config": {"step": "produce_work"}},
-        {"id": "ask", "type": "human_input", "config": {"prompt": "Which step?", "output_key": "_ask_ack"}},
-        {"id": "loop", "type": "loop", "config": {"max_iter": 3}},
-        {"id": "loop_route", "type": "router", "config": {"expression": "state['_loop']", "cases": {"continue": "gather", "done": "produce"}, "default": "produce"}},
+        {"id": "ask", "type": "human_input", "config": {"prompt": "Which onboarding step should we prioritize?", "output_key": "_ask_ack"}},
         {"id": "end", "type": "end", "config": {}},
     ],
     "edges": [
@@ -145,17 +144,26 @@ _FULL_TEMPLATE = {
         {"source": "gather", "target": "update"},
         {"source": "update", "target": "decide"},
         {"source": "decide", "target": "route"},
+        {"source": "ask", "target": "produce"},
         {"source": "produce", "target": "end"},
-        {"source": "ask", "target": "loop"},
-        {"source": "loop", "target": "loop_route"},
     ],
 }
 
 
-async def test_pm_full_template_with_loop_compiles_and_runs():
-    """The exact graph the console's 'New PM workflow' template generates — including the
-    ask_user→loop→loop_route→gather cycle — must compile (cycle validation) and run to a
-    recommendation on the happy path (evidence present → route to produce)."""
+def test_pm_full_template_validates_clean():
+    """The exact graph the console's 'New PM workflow' template generates must pass the
+    validator with NO errors and NO warnings — this is the save/publish gate the UI enforces."""
+    from ros.services.validation import validate_workflow
+
+    res = validate_workflow(_FULL_TEMPLATE)
+    assert res.valid, res.errors
+    # decide_progress is registered as writing pm_route, so the router doesn't false-warn.
+    assert not res.warnings, res.warnings
+
+
+async def test_pm_full_template_compiles_and_runs():
+    """The template must also compile and run to a recommendation on the happy path
+    (evidence present → route to produce)."""
     graph = compile_workflow(_FULL_TEMPLATE, _ctx())
     out = await graph.ainvoke({}, {"configurable": {"thread_id": "pmfull"}})
     assert out["pm_route"] == "produce"

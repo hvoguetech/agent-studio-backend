@@ -276,6 +276,11 @@ def _state_writers(nodes: list) -> dict[str, set[str]]:
             writers.setdefault(cfg.get("output_key", "data"), set())
         elif t in ("tool_call", "webhook_out") and cfg.get("output_key"):
             writers.setdefault(cfg["output_key"], set())
+        elif t == "pm_reason" and cfg.get("step") == "decide_progress":
+            # The decide_progress step writes the `pm_route` branch key so a downstream router
+            # can pick produce-vs-ask (it also sets can_make_progress). Register it so the router
+            # warning doesn't false-positive on a PM workflow.
+            writers.setdefault("pm_route", set()).update({"produce", "ask"})
     return writers
 
 
