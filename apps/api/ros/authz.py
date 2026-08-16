@@ -47,6 +47,8 @@ PERMISSIONS: dict[str, str] = {
     "audit:read": ADMIN,
     "auth_provider:read": VIEWER,
     "auth_provider:write": EDITOR,
+    "backend:provision": EDITOR,
+    "backend:read": VIEWER,
     "channel:read": VIEWER,
     "channel:write": EDITOR,
     "component:read": VIEWER,
