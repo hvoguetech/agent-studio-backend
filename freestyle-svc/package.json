@@ -1,0 +1,26 @@
+{
+  "name": "ros-freestyle-svc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ROS run-control service: the /run endpoint ROS's freestyle ExecutionBackend dispatches to. Boots the ros runtime (`python -m ros.runtime drive`) on a Freestyle VM that runs until explicitly torn down. Needs only FREESTYLE_API_KEY + a shared secret.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "dev": "tsx watch src/server.ts",
+    "build:image": "node dist/build-image.js"
+  },
+  "dependencies": {
+    "@freestyle-sh/with-python": "^0.2.11",
+    "fastify": "^5.2.0",
+    "freestyle": "^0.1.63"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
