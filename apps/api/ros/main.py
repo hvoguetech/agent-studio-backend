@@ -52,6 +52,7 @@ from ros.routers import (
     runs,
     runtime,
     secrets,
+    skills as skills_router,
     stats,
     tool_sets,
     tools,
@@ -292,7 +293,7 @@ def create_app() -> FastAPI:
         knowledge.router, knowledge.qa_router, traces.router, conversations.router, assistant.router, stats.router,
         triggers_router.router, channels.router, channels.public, handoff.router, evals.router,
         pricing.router, mcp_oauth.router, mcp_server.router, mcp_tokens.router, mcp_clients.router, versions.router,
-        runtime.router, provisioning.router,
+        runtime.router, provisioning.router, skills_router.router,
     ):
         app.include_router(r)
     # Authorization coverage audit (B/E4): log loudly if any route lacks a permission /

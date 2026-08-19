@@ -103,7 +103,7 @@
     "subagents": { "type": "array", "items": { "$ref": "#/$defs/SubAgent" }, "x-ui": { "section": "Deep Agent", "order": 9, "showWhen": "flavor=deep_agent" } },
     "filesystem": { "$ref": "#/$defs/FilesystemBackend", "x-ui": { "section": "Deep Agent", "order": 10, "showWhen": "flavor=deep_agent" } },
     "sandbox": { "$ref": "#/$defs/SandboxConfig", "x-ui": { "section": "Deep Agent", "order": 11, "showWhen": "flavor=deep_agent" } },
-    "skills": { "type": "array", "items": { "type": "string" }, "x-ui": { "section": "Deep Agent", "showWhen": "flavor=deep_agent" } },
+    "skills": { "type": "array", "items": { "type": "string" }, "description": "Skill ids (or names) from the project's skill library, mounted read-only at /skills/<name>/ and offered to the model by description, with the body read on demand. An entry starting with '/' is passed through as a raw backend source path instead.", "x-ui": { "widget": "chips", "refType": "skill", "section": "Deep Agent", "order": 12, "showWhen": "flavor=deep_agent" } },
     "permissions": {
       "type": "array",
       "items": { "type": "object", "properties": { "path": { "type": "string" }, "access": { "type": "string", "enum": ["read", "write", "none"] } } },

@@ -123,6 +123,19 @@ class RuntimeManifestService:
         )).scalars()
         agent_presets = {a.id: (a.config or {}) for a in agent_rows}
 
+        # Skills travel as full content: the VM has no DB, and a skill the agent can see but not
+        # read would be worse than one that isn't offered at all.
+        from ros.models import Skill
+        from ros.services.skills import to_row
+
+        skill_rows = (await session.execute(
+            select(Skill).where(
+                Skill.tenant_id == tenant_id, Skill.project_id == project_id,
+                Skill.enabled.is_(True),
+            )
+        )).scalars()
+        skills = [to_row(s) for s in skill_rows]
+
         wf_rows = (await session.execute(
             select(Workflow).where(Workflow.tenant_id == tenant_id, Workflow.project_id == project_id)
         )).scalars()
@@ -194,6 +207,7 @@ class RuntimeManifestService:
             "components": components,
             "mcp_clients": mcp_clients,
             "agent_presets": agent_presets,
+            "skills": skills,
             "workflows": workflows,
             "secrets": secrets,  # run-scoped resolved refs for tool call-time auth on the runtime
             "runtime_env": runtime_env,  # resolved provisioned-resource env (2b), scoped by agent+end_user

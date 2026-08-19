@@ -82,6 +82,8 @@ PERMISSIONS: dict[str, str] = {
     "run:read": VIEWER,
     "secret:read": VIEWER,
     "secret:write": ADMIN,
+    "skill:read": VIEWER,
+    "skill:write": EDITOR,
     "stat:read": VIEWER,
     "team:read": ADMIN,
     "team:write": ADMIN,

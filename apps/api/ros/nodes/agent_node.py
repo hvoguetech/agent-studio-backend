@@ -320,6 +320,32 @@ def _resolve_config(config: dict, ctx: CompileContext) -> dict:
     return config
 
 
+def _resolve_skills(refs, ctx: CompileContext) -> tuple[dict[str, str], list[str]]:
+    """A node's `skills` list -> (file map to mount, extra source paths).
+
+    Entries are library skill ids or names; an entry starting with `/` is passed through as a raw
+    backend source path instead (how the console assistant mounts its own on-disk skills). Unknown
+    references are skipped with a warning rather than failing the compile — a deleted skill should
+    degrade the agent, not break the workflow, exactly like an unknown tool id.
+    """
+    from ros.skills import materialize
+
+    library = getattr(ctx, "skill_library", None) or {}
+    rows, sources = [], []
+    for ref in refs or []:
+        if not isinstance(ref, str) or not ref:
+            continue
+        if ref.startswith("/"):
+            sources.append(ref)
+            continue
+        row = library.get(ref)
+        if row is None:
+            log.warning("agent node references unknown skill %r; skipping", ref)
+            continue
+        rows.append(row)
+    return materialize(rows), sources
+
+
 def agent_factory(config: dict, ctx: CompileContext):
     config = _resolve_config(config, ctx)
     common = _common_kwargs(config, ctx)
@@ -349,16 +375,43 @@ def agent_factory(config: dict, ctx: CompileContext):
         if config.get("planning"):  # write_todos planner (off by default - pure token overhead)
             from langchain.agents.middleware import TodoListMiddleware
             middleware.append(TodoListMiddleware())
+
+        # Skills (agent config["skills"] = library skill ids/names). The referenced skills are
+        # materialized into a read-only /skills/ route layered over whatever backend the node
+        # already has, so attaching a skill never disturbs the agent's own filesystem.
+        skill_files, skill_sources = _resolve_skills(config.get("skills"), ctx)
+        if skill_files:
+            from ros.skills import SKILLS_ROOT, mount
+            backend = mount(skill_files, backend)
+            skill_sources.append(SKILLS_ROOT)
+
         fs = config.get("filesystem") or {}
-        if fs.get("enabled") or (fs.get("backend") and fs.get("backend") != "none"):
+        fs_on = bool(fs.get("enabled") or (fs.get("backend") and fs.get("backend") != "none"))
+        if fs_on or skill_sources:
             from deepagents.middleware import FilesystemMiddleware
-            middleware.append(FilesystemMiddleware(backend=backend))
-        # Deep-agent skills (agent-skills source paths): wire as SkillsMiddleware - the SAME
-        # middleware create_deep_agent uses - so deep_agent NODES keep the skills capability under
-        # the lean create_agent path (backend-backed, so skill files load from the configured store).
-        if config.get("skills"):
+            from deepagents.middleware.filesystem import FilesystemPermission
+
+            # Skills are USELESS without read_file: the skills prompt tells the model to open the
+            # SKILL.md path it was shown. So skills imply a filesystem - but only a READ-ONLY one
+            # when the author didn't ask for a filesystem, since enabling a skill shouldn't quietly
+            # hand the agent write/delete/execute over its whole workspace.
+            fs_kwargs: dict[str, Any] = {"backend": backend}
+            if not fs_on:
+                fs_kwargs["tools"] = ["ls", "read_file", "glob", "grep"]
+            # Belt and braces with SkillLibraryBackend's own refusal: the library is tenant-scoped
+            # content, so the agent must not be able to rewrite a skill mid-run.
+            fs_kwargs["_permissions"] = [
+                FilesystemPermission(
+                    operations=["write", "edit", "delete"],
+                    paths=[f"{s.rstrip('/')}/**" for s in skill_sources], mode="deny",
+                ),
+            ] if skill_sources else None
+            middleware.append(FilesystemMiddleware(**fs_kwargs))
+        if skill_sources:
+            # The SAME middleware create_deep_agent uses, so deep_agent NODES keep the skills
+            # capability (progressive disclosure) under the lean create_agent path.
             from deepagents.middleware.skills import SkillsMiddleware
-            middleware.append(SkillsMiddleware(backend=backend, sources=list(config["skills"])))
+            middleware.append(SkillsMiddleware(backend=backend, sources=skill_sources))
         subagents = build_subagents(config.get("subagents", []), ctx, default_model=common["model"])
         if subagents:
             middleware.append(SubAgentMiddleware(backend=backend, subagents=subagents, system_prompt=_TASK_TOOL_PROMPT))

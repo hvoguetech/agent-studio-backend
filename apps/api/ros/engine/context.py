@@ -109,6 +109,12 @@ class CompileContext:
     # `agent_ref` and pick up edits made in the Agents tab without re-saving the workflow.
     agent_presets: dict[str, dict] = field(default_factory=dict)
 
+    # The project's skill library (skill_id -> {name, description, content, files}), populated by
+    # the runtime assembler. A deep_agent node names skills in config["skills"]; the factory
+    # materializes just those into a read-only /skills/ mount (ros.skills). Keyed by id AND name
+    # so a workflow can reference either.
+    skill_library: dict[str, dict] = field(default_factory=dict)
+
     # Project workflows' executables (id -> definition) so a `subworkflow` node can
     # compile a referenced workflow as a nested graph. `compiling` tracks in-progress
     # ids to break recursion cycles.

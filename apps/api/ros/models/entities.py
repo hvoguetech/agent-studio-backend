@@ -149,6 +149,37 @@ class Component(PkTimestamp, Base):
     version: Mapped[int] = mapped_column(Integer, default=1)
 
 
+class Skill(PkTimestamp, Base):
+    """An agent skill (Anthropic Agent Skills pattern): a named capability an agent discovers by
+    name + description and reads in full only when it applies (progressive disclosure).
+
+    Attached to a deep_agent node like tools are (agent config["skills"] holds skill ids); at
+    runtime the referenced skills are materialized into a read-only `/skills/<name>/SKILL.md`
+    filesystem the SkillsMiddleware mounts. `name` doubles as the skill DIRECTORY name, and the
+    Agent Skills spec requires the two to match, so it is validated to the spec's charset
+    (1-64 chars, lowercase alphanumeric + single hyphens) and the SKILL.md frontmatter is
+    SYNTHESIZED from these columns rather than authored - the row stays the single source of
+    truth, and a skill can never disagree with its own frontmatter."""
+
+    __tablename__ = "skills"
+    # The name is the mounted directory, so two skills in a project can't share one (they would
+    # shadow each other under /skills/). Same rationale as Component.name.
+    __table_args__ = (UniqueConstraint("tenant_id", "project_id", "name", name="uq_skill_tenant_project_name"),)
+    tenant_id: Mapped[str] = mapped_column(String(36), index=True)
+    project_id: Mapped[str] = mapped_column(String(36), index=True)
+    name: Mapped[str] = mapped_column(String(64))
+    # Surfaced to the model UP FRONT (this is what it matches a task against), so it earns its
+    # tokens on every turn the skill is attached - keep it specific.
+    description: Mapped[str] = mapped_column(Text, default="")
+    # The SKILL.md BODY (markdown, no frontmatter). Read on demand, not at startup.
+    content: Mapped[str] = mapped_column(Text, default="")
+    # Optional supporting files, {relative_path: text} - reference docs, examples, snippets.
+    # Mounted next to SKILL.md so the skill can point the agent at them by path.
+    files: Mapped[dict] = mapped_column(JSON, default=dict)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
+
 class Agent(PkTimestamp, Base):
     __tablename__ = "agents"
     tenant_id: Mapped[str] = mapped_column(String(36), index=True)
