@@ -78,6 +78,13 @@ class CompileContext:
     # is embedded in the prompt and stored on the thread).
     run_context: dict = field(default_factory=dict)
 
+    # The run's GOVERNED SUBJECT: the ApiKey id this run acts as (Run.agent_id == ApiKey.id) — the
+    # owner of the resources surfaced in `runtime_env`, and the principal a mid-run self-provisioning
+    # tool gates against (its `backend:provision` capability allow-list + per-subject capacity cap).
+    # None for operator / console / JWT / service runs (no governed subject); those cannot
+    # self-provision from inside a run and must use the HTTP provisioning route instead.
+    agent_id: str | None = None
+
     # The agent's provisioned, per-(agent, end_user) resource environment (per-end-user isolation
     # 2b): standard env var name -> RESOLVED value (e.g. DATABASE_URL, REDIS_URL, endpoint URLs) for
     # the durable resources this run's governed subject (Run.agent_id) provisioned — the agent-shared
@@ -90,6 +97,13 @@ class CompileContext:
 
     # Project-level default middleware, prepended to every agent stack (Doc 2 §8).
     project_default_mw: list[dict] = field(default_factory=list)
+
+    # Project-level default tools/toolsets (project.config.default_tools / default_toolsets), granted
+    # to EVERY agent node on top of the tools it lists itself. The node merges these into its own tool
+    # ids; resolve_tool_ids de-dups by id, so a node that also lists a default doesn't bind it twice.
+    # The tool analogue of project_default_mw — one capability set every agent in the project gets.
+    project_default_tools: list[str] = field(default_factory=list)
+    project_default_toolsets: list[str] = field(default_factory=list)
 
     # Saved agent presets (agent_id -> config), so an agent node can mirror one by
     # `agent_ref` and pick up edits made in the Agents tab without re-saving the workflow.

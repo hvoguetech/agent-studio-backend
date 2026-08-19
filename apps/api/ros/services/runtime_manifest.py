@@ -180,9 +180,12 @@ class RuntimeManifestService:
             "tenant_id": tenant_id,
             "project_id": project_id,
             "workflow_id": workflow_id,
+            "agent_id": agent_id,  # the run's governed subject (gates a mid-run self-provision on the VM)
             "executable": wf.executable or {},
             "default_model": default_model,
             "default_middleware": default_mw,
+            "default_tools": pconfig.get("default_tools") or [],
+            "default_toolsets": pconfig.get("default_toolsets") or [],
             "model_aliases": pconfig.get("model_aliases") or {},
             "egress": pconfig.get("egress"),
             "provider_credentials": provider_credentials,

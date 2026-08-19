@@ -99,11 +99,17 @@ async def build_compile_context(
     )
     ctx.provider_credentials = resolved_keys
     ctx.model_aliases = pconfig.get("model_aliases") or {}
+    # Project-wide default tools/toolsets granted to every agent node (parallel to default_middleware).
+    ctx.project_default_tools = pconfig.get("default_tools") or []
+    ctx.project_default_toolsets = pconfig.get("default_toolsets") or []
     ctx.egress_policy = EgressPolicy.from_settings(pconfig.get("egress"))
     ctx.end_user = end_user or None
     # Ephemeral per-run injected context (never persisted, never prompted); consumed by tools
     # for {{ctx.<key>}} templating and by the auth resolver. See CompileContext.run_context.
     ctx.run_context = run_context or {}
+    # The run's governed subject (Run.agent_id == ApiKey.id): owner of runtime_env's resources and the
+    # principal a mid-run self-provisioning tool gates against. None for operator/console/JWT runs.
+    ctx.agent_id = agent_id
 
     # Per-end-user isolation (2b): a run created by a governed subject (Run.agent_id) gets the
     # RESOLVED env of the resources that subject provisioned — agent-shared UNION this end_user's
@@ -259,9 +265,15 @@ def build_compile_context_from_manifest(
     )
     ctx.provider_credentials = manifest.get("provider_credentials") or {}
     ctx.model_aliases = manifest.get("model_aliases") or {}
+    # Project-wide default tools/toolsets, carried in the manifest so the VM path grants them too.
+    ctx.project_default_tools = manifest.get("default_tools") or []
+    ctx.project_default_toolsets = manifest.get("default_toolsets") or []
     ctx.egress_policy = EgressPolicy.from_settings(manifest.get("egress"))
     ctx.end_user = end_user or None
     ctx.run_context = run_context or {}
+    # The run's governed subject, carried in the manifest (parallel to the DB path) so a self-
+    # provisioning tool gates identically on an isolated VM. Empty for a manifest built without one.
+    ctx.agent_id = manifest.get("agent_id")
     # Per-end-user isolation (2b): the agent's resolved provisioned resource env, precomputed by
     # RuntimeManifestService.build (scoped by agent + the run's end_user) so the DB-less runtime
     # gets the same isolation as the DB path. Empty for a manifest built without a governed subject.

@@ -188,6 +188,88 @@ def build_builtin_tool(cfg: dict, ctx):
             args_schema=_RecallArgs,
         )
 
+    if builtin == "provision_resource":
+        # Agent self-provisioning (#6 slice 2): let an agent, mid-run, provision an ISOLATED resource
+        # stack for the end user it is currently serving (JIT isolation on first contact). GATED here
+        # (builtins bypass the materialize entitlement wrapper) on the run's GOVERNED SUBJECT —
+        # ctx.agent_id, the ApiKey the run acts as: its default-deny `backend:provision` capability
+        # allow-list + per-subject capacity cap. Scoped to (agent_id, ctx.end_user) so each end user
+        # gets their OWN resources (the forUser model); the resolved env is injected into this
+        # subject's subsequent runs (see runtime_env / per-end-user isolation 2b). Operator/console
+        # runs (no governed subject) cannot self-provision from inside a run — they use the HTTP route.
+        _PROVISION_CAP = "backend:provision"
+
+        class _ProvisionArgs(BaseModel):
+            template: str = Field(default="db", description="Which starter stack to provision for the current end user: 'db' (Postgres), 'db+storage' (Postgres + object storage), or 'db+storage+queue' (full stack).")
+            kind: str = Field(default="", description="Optional: provision a single provider kind instead of a template (e.g. 'railway-postgres', 'railway-storage', 'queue').")
+            resource_name: str = Field(default="", description="Optional human-readable name for the provisioned resource(s).")
+
+        async def provision_resource_tool(template: str = "db", kind: str = "", resource_name: str = "") -> str:
+            import json
+
+            from sqlalchemy import select
+
+            from ros.db.base import SessionLocal
+            from ros.models.entities import ApiKey
+            from ros.services import backend_provisioning as bp
+            from ros.services import provision_templates as templates
+            from ros.services.apikeys import ApiKeyService
+            from ros.services.budget import ProvisionNotAllowed
+
+            gid = getattr(ctx, "agent_id", None)
+            if not gid:
+                return ("Not permitted: self-provisioning requires this run to act as a governed subject "
+                        "(an API-key-scoped run). Operator/console runs must provision via the API.")
+            eu = getattr(ctx, "end_user", None) or {}
+            eu_id = str(eu.get("id") or "").strip() or None
+
+            # Resolve the resource list: a single kind overrides; else the named template.
+            if kind:
+                resources = [{"kind": kind, "spec": {}}]
+                template_id: str | None = None
+            else:
+                resources = templates.resources_for(template)
+                if resources is None:
+                    return f"Unknown template {template!r}. Choose one of: db, db+storage, db+storage+queue."
+                template_id = template
+
+            async with SessionLocal() as s:
+                # Gate on the governed subject: default-deny capability + per-subject capacity cap.
+                key = (await s.execute(
+                    select(ApiKey).where(ApiKey.tenant_id == ctx.tenant_id, ApiKey.id == gid)
+                )).scalar_one_or_none()
+                if key is None:
+                    return "Not permitted: this run's governed subject could not be resolved."
+                if not ApiKeyService.allows(key, _PROVISION_CAP):
+                    return f"Not permitted: this agent lacks the '{_PROVISION_CAP}' capability."
+                try:
+                    await ApiKeyService.enforce_capacity(s, key)
+                except ProvisionNotAllowed as e:
+                    return f"Cannot provision: {e}"
+
+                try:
+                    result = await bp.provision_resource_list(
+                        s, ctx.tenant_id, ctx.project_id, agent_id=gid, end_user_id=eu_id,
+                        resources=resources, template_id=template_id, name=(resource_name or None),
+                    )
+                except bp.ProvisionError as e:
+                    return f"Provisioning failed: {e}"
+
+            provisioned, errors = result["provisioned"], result["errors"]
+            if not provisioned:
+                return json.dumps({"provisioned": [], "errors": errors, "message": "Nothing was provisioned."})
+            # Client-safe summary only — handles carry secret REFS (never values); omit them entirely.
+            summary = [{"backend_id": h["backend_id"], "provider": h["provider"], "status": h["status"],
+                        "endpoint_url": h.get("endpoint_url"), "template": h.get("template")} for h in provisioned]
+            return json.dumps({"agent_id": gid, "end_user_id": eu_id, "provisioned": summary, "errors": errors})
+
+        return StructuredTool.from_function(
+            coroutine=provision_resource_tool, name=name,
+            description=desc or ("Provision an isolated backend resource stack (database / storage / queue) for the "
+                                 "current end user so their data is isolated from other users. Returns the resource handles."),
+            args_schema=_ProvisionArgs,
+        )
+
     raise ValueError(f"Unknown builtin tool: {builtin!r}")
 
 

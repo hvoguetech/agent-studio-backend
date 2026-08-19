@@ -138,27 +138,11 @@ async def provision(
     else:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "provide either `template` or `kind`")
 
-    provisioned: list[dict] = []
-    errors: list[dict] = []
-    for res in resources:
-        kind = res["kind"]
-        try:
-            handle = await bp.provision_resource(
-                session, tenant_id, project_id, agent_id=agent_id, end_user_id=body.end_user_id,
-                kind=kind, spec=res.get("spec") or {}, name=body.name,
-            )
-        except (bp.ProvisionError, ProvisionNotAllowed) as e:
-            # D3 best-effort: record the miss and keep going; the failed resource self-rolled-back.
-            errors.append({"kind": kind, "error": str(e)})
-            continue
-        if template_id:
-            # Tag the row with its template so the console can group/show it (config is provider report + ours).
-            row = await session.get(ProvisionedBackend, handle["backend_id"])
-            if row is not None:
-                row.config = {**(row.config or {}), "template": template_id}
-                await session.commit()
-            handle["template"] = template_id
-        provisioned.append(handle)
+    result = await bp.provision_resource_list(
+        session, tenant_id, project_id, agent_id=agent_id, end_user_id=body.end_user_id,
+        resources=resources, template_id=template_id, name=body.name,
+    )
+    provisioned, errors = result["provisioned"], result["errors"]
 
     # A request that provisioned nothing is a failure, not a silent empty success.
     if not provisioned and errors:

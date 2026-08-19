@@ -256,7 +256,13 @@ def _dynamic_field_middleware(config: dict, ctx: CompileContext, base_prompt: st
 
 
 def _common_kwargs(config: dict, ctx: CompileContext) -> dict:
-    tools = list(ctx.tools_for(ctx.resolve_tool_ids(config.get("tools"), config.get("toolsets"))))
+    # Node's own tools/toolsets PLUS the project-wide defaults granted to every agent
+    # (ctx.project_default_tools / _toolsets). resolve_tool_ids de-dups by id, so a node that also
+    # lists a default doesn't bind it twice; the tool analogue of project_default_mw.
+    tools = list(ctx.tools_for(ctx.resolve_tool_ids(
+        (config.get("tools") or []) + list(ctx.project_default_tools or []),
+        (config.get("toolsets") or []) + list(ctx.project_default_toolsets or []),
+    )))
     # Built-in knowledge access (RAG / Q&A) attached straight to the agent via its
     # `knowledge` config - no separate Tool row needed (see tools/builtin.py).
     if config.get("knowledge"):

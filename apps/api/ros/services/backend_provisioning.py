@@ -33,9 +33,9 @@ from ros.services.secrets import SecretService
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "ProvisionError", "is_enabled", "provision_resource", "provision_backend",
-    "teardown_resource", "teardown_backend", "runtime_env", "resolved_runtime_env",
-    "runtime_env_for_run",
+    "ProvisionError", "is_enabled", "provision_resource", "provision_resource_list",
+    "provision_backend", "teardown_resource", "teardown_backend", "runtime_env",
+    "resolved_runtime_env", "runtime_env_for_run",
 ]
 
 
@@ -142,6 +142,44 @@ async def provision_backend(
         session, tenant_id, project_id, agent_id=agent_id, end_user_id=end_user_id,
         kind=(spec.get("provider") or "railway-postgres"), spec=spec, name=name,
     )
+
+
+async def provision_resource_list(
+    session: AsyncSession, tenant_id: str, project_id: str, *,
+    agent_id: str | None = None, end_user_id: str | None = None,
+    resources: list[dict], template_id: str | None = None, name: str | None = None,
+) -> dict:
+    """Best-effort provision a RESOLVED list of `{kind, spec}` resources for one (agent, end_user).
+
+    Shared by the provisioning route (#6 slice 1) and the agent self-provisioning tool (#6 slice 2):
+    the CALLER resolves the list (from a template or a single kind) and does the authz / capability
+    gate; this just runs `provision_resource` per resource, D3 best-effort — a failed resource is
+    recorded in `errors` and self-rolled-back, the rest still provision — and tags each row with
+    `template_id` when given. Returns {"provisioned": [handle], "errors": [{kind, error}]}."""
+    from ros.services.budget import ProvisionNotAllowed
+
+    provisioned: list[dict] = []
+    errors: list[dict] = []
+    for res in resources:
+        kind = res["kind"]
+        try:
+            handle = await provision_resource(
+                session, tenant_id, project_id, agent_id=agent_id, end_user_id=end_user_id,
+                kind=kind, spec=res.get("spec") or {}, name=name,
+            )
+        except (ProvisionError, ProvisionNotAllowed) as e:
+            # D3 best-effort: record the miss and keep going; the failed resource self-rolled-back.
+            errors.append({"kind": kind, "error": str(e)})
+            continue
+        if template_id:
+            # Tag the row with its template so the console can group/show it.
+            row = await session.get(ProvisionedBackend, handle["backend_id"])
+            if row is not None:
+                row.config = {**(row.config or {}), "template": template_id}
+                await session.commit()
+            handle["template"] = template_id
+        provisioned.append(handle)
+    return {"provisioned": provisioned, "errors": errors}
 
 
 async def teardown_resource(
