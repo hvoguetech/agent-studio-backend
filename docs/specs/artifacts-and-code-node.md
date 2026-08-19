@@ -3,7 +3,7 @@
 **Status:** Draft / proposal (2026-08-19) · **Target repo:** `agent-studio-backend` (package `ros`)
 · **Related:** `docs/design/code-execution-sandbox.md` (the stateless code *tool*), `docs/specs/provisioning-dx.md` (#6 provisioning).
 
-> Plan-only. §5 decisions are **settled** (2026-08-19); still awaiting a starting slice (§6) before implementation.
+> §5 decisions **settled** (2026-08-19). **Slice 1 shipped + live-verified**; slices 2–7 are still plan-only.
 
 ---
 
@@ -91,16 +91,39 @@ class Workspace(Protocol):
 - The workspace is **addressable** and **long-lived per `(agent, end_user)`** (decided, §5.2) — a **provisioned resource** (`provision_resource`, alongside `railway-storage`/compute) with its own record: workspace id, VM id, repo/ref, `last_used_at`, TTL. Multiple nodes in a run — and later runs for the same end user — **share one checkout** (upstream edits visible downstream, warm deps, no re-clone).
 - **Concurrency — Redis lease, serialized** (decided). A long-lived checkout is shared mutable state, so one run holds it at a time: acquire lease on `(agent, end_user)` → heartbeat while the node runs → release on completion. Reuses the **existing Redis-lease/reclaim pattern** (stale lease from a dead run is reclaimed on TTL expiry). A second run **waits or fails fast** — surfaced as a node-level busy state, not a silent queue.
 - **GC/TTL** — idle workspaces are swept (VM torn down, artifacts already durable in S3); the checkout is a cache, never the source of truth.
-- **Graph runs stay ephemeral**; nodes exchange only **refs + commit sha**. On resume, replay from those, **do not re-run the build** (§4.5).
+- **Graph runs stay ephemeral**; nodes exchange only **refs + commit sha**. On resume, replay from those, **do not re-run the build** (§4.6).
 - Mental model: **one workflow graph (one execution locus) + a code node that drives an isolated workspace off to the side** — not "the workflow splits onto another VM."
 
-### 4.4 Governance
+### 4.4 Agent skills (folded in, decided 2026-08-19)
+
+Skills are **files**, so they belong on the same substrate as artifacts and the checkout rather than
+in a storage path of their own. Decision: **skills live in the per-`(agent, end_user)` workspace**,
+mounted **read-only** into the agent's backend — mirroring what the console assistant already does
+(`ros/services/assistant.py:891`: a `CompositeBackend` routing `/skills/` to a `FilesystemBackend`
+plus a deny-write `FilesystemPermission`). They then version with the checkout, and a code node can
+author them.
+
+**The gap this closes.** `deep_agent` nodes already accept a `skills` config key and attach the real
+`SkillsMiddleware` (`ros/nodes/agent_node.py:359`) — but the middleware's backend comes from
+`ctx.sandbox_backend_for()`, and **nothing ever assigns `CompileContext.sandbox`**
+(`ros/engine/context.py:51`, still marked "Phase 3+"). So the backend always falls back to an empty
+in-process `StateBackend`: the key is accepted, passed through, and mounts nothing. Consequently
+there is also no `skills` field in `ros/schemas/contracts.py` and **no console UI** (`AgentConfig.tsx`
+`DeepAgentPanel` exposes only planning / filesystem / sandbox / subagents). ⚠️ The same unassigned
+`ctx.sandbox` makes that panel's **"Enable sandbox for code execution" toggle inert** for the
+deep-agent backend — worth fixing in the same pass. (The code *tool* is unaffected; it resolves
+through `get_code_executor()`.)
+
+**Order matters:** backend first. A UI field shipped ahead of a real backend is a dead control —
+this panel has been there before (see its own "replaces the old dead-end hint" comment).
+
+### 4.5 Governance
 
 - New capability **`code:execute`** (and possibly **`repo:write`**) in `authz.py:PERMISSIONS` + the governed-subject allow-list (`ApiKeyService.allows`), gated exactly like `backend:provision`.
 - **Resource caps** on the workspace (walltime/CPU/mem — the `CodeRunRequest` limits already model this) + per-subject `enforce_capacity`; `tenant_budget` hard-cap already applies per node.
 - **Egress** enforced on the workspace's network; **feature gate** `ROS_ENABLE_CODE_NODE` (like `ROS_ENABLE_CODE_TOOLS`).
 
-### 4.5 Replay / durability / HITL
+### 4.6 Replay / durability / HITL
 
 - Checkpoint at node boundaries; the **artifact refs + commit sha are the durable handoff**. Content-addressing makes a re-emitted artifact a no-op.
 - **Long builds** — the node awaits the workspace; for long sessions support **interrupt/HITL** (pause → human review → resume) via the existing `human_input`/interrupt patterns rather than a single multi-hour await.
@@ -133,7 +156,8 @@ Any agent provisioned through that provider therefore gets an unusable storage c
 |---|---|---|---|
 | **1** ✅ | **Artifact plane** — `artifacts` channel + merge-by-`(bucket,key)` reducer (`engine/state.py`, mirrored in `langgraph_transpile`), `ros/artifacts/state.py` bridge (`emit`/`load`/`select`/`to_entry`/`from_entry`/`run_scope`), `run_id` on every run's `configurable`. Store reused as-is from WS7 | bucket | **Done + LIVE-VERIFIED.** `tests/test_artifact_plane.py` (18, offline): producer→consumer handoff through a compiled graph, parallel-branch merge, in-place update on re-emit, bytes absent from the checkpoint, JMESPath edge selection. `tests/test_artifact_plane_live.py` (4, opt-in) against the real Railway bucket: key scheme as stored, object present off the wire, presigned GET downloads unauthenticated, content-addressed overwrite + `delete_run` reclaim |
 | **2** | **Workspace resource + lease** — workspace record as a provisioned resource keyed by `(agent, end_user)`; VM create/attach/GC; Redis lease acquire/heartbeat/release | VM | two concurrent runs **serialize** on one workspace; lease survives a master restart; stale lease reclaimed on TTL; idle workspace swept |
-| **3** | **`Workspace` seam + `FreestyleWorkspace`** — protocol + `get_workspace()` registry + VM impl (`checkout`/`read`/`write`/`ls`/`exec`/`diff`/`commit`/`push`/`snapshot`); git token as `secret://`; egress allow-list | VM | clone a real repo on the VM, edit, run a build, `diff`, `snapshot` → artifact in S3; token never in prompt/state; egress denial verified |
+| **3** | **`Workspace` seam + `FreestyleWorkspace`** — protocol + `get_workspace()` registry + VM impl (`checkout`/`read`/`write`/`ls`/`exec`/`diff`/`commit`/`push`/`snapshot`); git token as `secret://`; egress allow-list. **Assigns `ctx.sandbox`** at last, which also un-deadens the console's sandbox toggle (§4.4) | VM | clone a real repo on the VM, edit, run a build, `diff`, `snapshot` → artifact in S3; token never in prompt/state; egress denial verified |
+| **3b** | **Agent skills on the workspace** (§4.4) — mount `/skills/` read-only into the deep-agent backend via `CompositeBackend` + deny-write `FilesystemPermission`; declare `skills` in `ros/schemas/contracts.py`; Skills section in `AgentConfig.tsx`'s `DeepAgentPanel` (frontend repo) | VM | a skill file in the workspace is discovered by a `deep_agent` node and read on demand; the agent cannot write to `/skills/**`; the console can attach one |
 | **4** | **`code` node (delegate-on-VM)** — `NodeSpec` + factory; dispatches the deep-agent loop onto the VM via the runner/driver path; collects refs. Ships with the **`code:execute` capability + `ROS_ENABLE_CODE_NODE` gate** (pulled forward from old slice 4) | VM | node clones repo, edits, returns a diff artifact; downstream node consumes it; **denied without `code:execute` / when the gate is off**; optional: PR opened |
 | **5** | **Governance hardening** — walltime/CPU/mem caps, `enforce_capacity` per subject, `tenant_budget` interaction, egress policy on the workspace network | VM | walltime cap kills a runaway build; capacity + budget denials tested; egress allow-list enforced under load |
 | **6** | **Cross-node + cross-run polish** — edge artifact contracts + validator check; prove workspace reuse across runs; artifact GC/TTL sweep | VM | validator flags "node B requires an artifact node A doesn't emit"; run 2 sees run 1's edits without re-cloning; TTL sweep reclaims |
