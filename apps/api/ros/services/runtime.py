@@ -224,6 +224,12 @@ async def build_compile_context(
     ).scalars()
     ctx.agent_presets = {a.id: (a.config or {}) for a in agent_rows}
 
+    # Skill library, so a deep_agent node's config["skills"] resolves to real SKILL.md content
+    # at compile time. Keyed by id AND name (a workflow may reference either).
+    from ros.services.skills import load_skill_library
+
+    ctx.skill_library = await load_skill_library(session, tenant_id, project_id)
+
     # Workflow executables (keyed by id AND name) so `subworkflow` nodes can reference
     # another workflow as a reusable component.
     wf_rows = (
@@ -313,5 +319,10 @@ def build_compile_context_from_manifest(
 
     ctx.mcp_tools_by_client = {}  # runtime-side MCP connect is a follow-up
     ctx.agent_presets = manifest.get("agent_presets") or {}
+    # Skills ride the manifest as plain rows (no DB on the VM), so a deep_agent node mounts the
+    # same library there as on master.
+    from ros.services.skills import index_skills
+
+    ctx.skill_library = index_skills(manifest.get("skills") or [])
     ctx.workflows = manifest.get("workflows") or {}
     return ctx

@@ -20,6 +20,7 @@ from ros.models.entities import (
     QaPair,
     Run,
     Secret,
+    Skill,
     Span,
     Tenant,
     Thread,
@@ -41,4 +42,5 @@ __all__ = [
     "Tool", "ToolSet", "ToolSetMember", "AuthProvider", "Secret", "McpClient", "Agent", "KbSource", "QaPair",
     "AuditLog", "Trigger", "Channel", "Component", "HandoffRequest", "Dataset", "ModelPrice", "Memory",
     "EntityVersion", "EvalRun", "EvalResult", "OAuthClient", "Artifact", "ProvisionedBackend",
+    "Skill",
 ]

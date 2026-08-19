@@ -270,7 +270,162 @@ def build_builtin_tool(cfg: dict, ctx):
             args_schema=_ProvisionArgs,
         )
 
+    if builtin == "claude_agent":
+        return _build_claude_agent_tool(cfg, ctx)
+
     raise ValueError(f"Unknown builtin tool: {builtin!r}")
+
+
+# --- Claude Agent SDK exposed as a callable tool -----------------------------------------------
+# A ROS agent/deep_agent CALLS this tool to hand a self-contained, autonomous task to Anthropic's
+# Claude Agent SDK (its native reasoning loop, file/shell/edit tools, MCP, subagents, and automatic
+# skill invocation - none of which we reimplement, so none is compromised). Because the host ROS
+# agent owns the ROS-side features (its own tools/toolsets/knowledge/components/middleware/budget/
+# any-provider model + per-step tracing), this tool needs no ROS-tool bridge: it is the inner
+# Claude loop, invoked on demand. The SDK is Anthropic-only and its loop is opaque to LangGraph,
+# so ROS middleware does not wrap it and the model is a bare Claude id.
+#
+# LIVE STREAMING: as the SDK yields turns, we emit `custom` frames on the "claude_agent" channel
+# via get_stream_writer() - the same mechanism pm_reason/emit_event use - so the workflow's live
+# timeline shows per-turn activity (assistant text, tool_use, result) instead of one silent block.
+
+class _ClaudeAgentArgs(BaseModel):
+    task: str = Field(description="The self-contained task for the Claude agent to complete autonomously (it can read, edit, and run shell commands in its workspace).")
+    workspace: str = Field(default="", description="Optional absolute working directory the agent operates in. Empty = the run's workspace, else a temp dir.")
+    model: str = Field(default="", description="Optional bare Anthropic model id (e.g. 'claude-sonnet-4-5'). Empty = the CLI's default.")
+    system_prompt: str = Field(default="", description="Optional extra system prompt appended to Claude's own agent prompt for this task.")
+
+
+def _build_claude_agent_tool(cfg: dict, ctx):
+    import os
+
+    name = cfg.get("name", "claude_agent")
+    desc = cfg.get("description", "")
+    # Node-level defaults from the tool config; per-call args (task/workspace/model/system_prompt)
+    # override where provided. permission_mode / max_turns / tool allow-lists are set here (not
+    # exposed as call args) so the operator - not the calling model - governs them.
+    default_permission = cfg.get("permission_mode", "acceptEdits")
+    default_max_turns = int(cfg.get("max_turns") or 40)
+    allowed_tools = cfg.get("allowed_tools")
+    disallowed_tools = cfg.get("disallowed_tools")
+    default_workspace = cfg.get("workspace") or ""
+    default_model = cfg.get("model") or ""
+    default_system = cfg.get("system_prompt") or ""
+    # Native SDK MCP servers the calling operator granted this tool (agent-scoped MCP, pre-loaded
+    # by the runtime assembler). Native SDK feature - no ROS-tool bridge.
+    mcp_servers = cfg.get("mcp_servers")
+
+    creds = getattr(ctx, "provider_credentials", None) or {}
+    anthropic_key = creds.get("anthropic")
+
+    def _resolve_cwd(workspace: str) -> str:
+        ws = (workspace or default_workspace or os.environ.get("ROS_CLAUDE_CODE_WORKSPACE", "")).strip()
+        if not ws:
+            import tempfile
+            ws = tempfile.mkdtemp(prefix="ros-claude-agent-")
+        ws = os.path.abspath(ws)
+        os.makedirs(ws, exist_ok=True)
+        return ws
+
+    def _emit(event: str, payload: dict) -> None:
+        """Push a live per-turn activity frame to the run stream (no-op with no active writer)."""
+        try:
+            from langgraph.config import get_stream_writer
+            get_stream_writer()({"channel": "claude_agent", "payload": {"event": event, **payload}})
+        except Exception:  # noqa: BLE001 - no active stream writer (ainvoke / non-SSE)
+            pass
+
+    async def claude_agent_tool(task: str, workspace: str = "", model: str = "", system_prompt: str = "") -> str:
+        try:
+            from claude_agent_sdk import ClaudeAgentOptions, query
+        except ImportError as e:  # pragma: no cover - optional extra
+            raise ImportError(
+                "The claude_agent tool needs the Claude Agent SDK: install `.[claude_code]` "
+                "(also requires the `claude` CLI + Node on PATH)."
+            ) from e
+
+        cwd = _resolve_cwd(workspace)
+        opts: dict = {
+            "cwd": cwd,
+            "permission_mode": default_permission,
+            "max_turns": default_max_turns,
+        }
+        eff_model = model or default_model
+        if eff_model:
+            opts["model"] = eff_model
+        eff_system = system_prompt or default_system
+        if eff_system:
+            opts["system_prompt"] = eff_system
+        if allowed_tools is not None:
+            opts["allowed_tools"] = list(allowed_tools)
+        if disallowed_tools is not None:
+            opts["disallowed_tools"] = list(disallowed_tools)
+        if mcp_servers:
+            opts["mcp_servers"] = mcp_servers
+        options = ClaudeAgentOptions(**opts)
+
+        # The SDK's CLI subprocess reads ANTHROPIC_API_KEY from env; overlay the project's governed
+        # key for the duration of this call only, then restore (no leak into the long-lived env).
+        restore = None
+        if anthropic_key:
+            restore = os.environ.get("ANTHROPIC_API_KEY")
+            os.environ["ANTHROPIC_API_KEY"] = anthropic_key
+
+        text_chunks: list[str] = []
+        cost_usd = None
+        _emit("start", {"task": task[:200], "cwd": cwd, "model": eff_model or "(default)"})
+        try:
+            async for message in query(prompt=task, options=options):
+                kind = type(message).__name__
+                if kind == "AssistantMessage":
+                    for block in getattr(message, "content", []) or []:
+                        bkind = type(block).__name__
+                        if bkind == "TextBlock":
+                            t = getattr(block, "text", "") or ""
+                            if t:
+                                text_chunks.append(t)
+                                _emit("assistant", {"text": t[:2000]})
+                        elif bkind == "ToolUseBlock":
+                            # Live per-turn tool activity: what tool Claude is invoking, mid-loop.
+                            _emit("tool_use", {"tool": getattr(block, "name", "?"),
+                                               "input": _clip(getattr(block, "input", None))})
+                elif kind == "ResultMessage":
+                    result_text = getattr(message, "result", None)
+                    if result_text:
+                        text_chunks = [result_text]  # authoritative final answer
+                    cost_usd = getattr(message, "total_cost_usd", None)
+                    if getattr(message, "is_error", False):
+                        _emit("error", {"detail": str(result_text)[:500]})
+        finally:
+            if anthropic_key:
+                if restore is None:
+                    os.environ.pop("ANTHROPIC_API_KEY", None)
+                else:
+                    os.environ["ANTHROPIC_API_KEY"] = restore
+
+        final = "\n".join(c for c in text_chunks if c).strip() or "(claude_agent: empty result)"
+        _emit("done", {"cost_usd": cost_usd, "cwd": cwd})
+        return final
+
+    return StructuredTool.from_function(
+        coroutine=claude_agent_tool, name=name,
+        description=desc or (
+            "Delegate a self-contained, autonomous task to the Claude agent: it plans, reads/edits "
+            "files, and runs shell commands in a workspace, then returns its final result. Use for "
+            "multi-step coding, refactoring, file, or research tasks you can hand off wholesale."
+        ),
+        args_schema=_ClaudeAgentArgs,
+    )
+
+
+def _clip(value, n: int = 300):
+    """Bound a tool-use input's size before it enters an activity frame (avoid bloat)."""
+    try:
+        import json as _json
+        s = _json.dumps(value, default=str, ensure_ascii=False)
+    except Exception:  # noqa: BLE001
+        s = str(value)
+    return s[:n]
 
 
 class _KbQuery(BaseModel):

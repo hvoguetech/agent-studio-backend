@@ -68,8 +68,10 @@ the execution/code-executor seams (the core imports boto3 only when `s3` is sele
   `ArtifactStore` (key scheme, content-addressing, size cap), config + tests. No DB/API/deploy.
 - **Phase 2: `Artifact` model + API** — DB table (tenant/project/run/key/sha/size/content_type),
   migration, upload/list/download(presign)/delete router gated by `artifact:read/write`.
-- **Phase 3: producers + GC** — wire the deep-agent filesystem backend + a tool-artifact emit path to
-  `ArtifactStore` (refs-in-state); ref-aware retention + cascade delete; per-tenant quota.
+- **Phase 3: producers + GC** — *refs-in-state landed* (the `artifacts` channel + reducer +
+  `ros/artifacts/state.py`; see `docs/specs/artifacts-and-code-node.md` slice 1). Still open: wiring
+  the deep-agent filesystem backend + a tool-artifact emit path as real producers; ref-aware
+  retention + cascade delete; per-tenant quota.
 - **Phase 4 (enterprise): dedicated/BYO buckets** via a custom `BucketResolver`; region + KMS.
 
 ## 6. Config

@@ -10,8 +10,15 @@ ENV PYTHONUNBUFFERED=1 \
     ROS_FASTEMBED_CACHE_DIR=/app/.fastembed-cache
 
 # Build deps for psycopg/cryptography wheels (kept minimal; most ship manylinux wheels).
+# Node.js + the Claude CLI are required by the `claude_code` node: the Claude Agent SDK
+# drives the `claude` CLI subprocess, which is a Node program. Installed from NodeSource so
+# the SDK's default `claude` binary is on PATH at runtime.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential curl \
+        build-essential curl ca-certificates \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm install -g @anthropic-ai/claude-code \
+    && npm cache clean --force \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -28,9 +35,10 @@ WORKDIR /app
 COPY apps/api/pyproject.toml apps/api/README.md ./
 RUN mkdir -p ros && touch ros/__init__.py
 # Production extras: model providers, vectors, knowledge, MCP, workers (Redis/arq), Postgres,
-# storage (boto3 for the S3 artifact backend).
+# storage (boto3 for the S3 artifact backend), claude_code (Claude Agent SDK for the claude_code
+# node — the `claude` CLI itself is installed above via npm).
 RUN pip install --upgrade pip && \
-    pip install -e ".[providers,vectors,knowledge,mcp,workers,postgres,storage]"
+    pip install -e ".[providers,vectors,knowledge,mcp,workers,postgres,storage,claude_code]"
 
 # Real source over the stub (this layer changes on every edit, but it is AFTER the install).
 COPY apps/api/ros ./ros
