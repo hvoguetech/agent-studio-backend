@@ -108,7 +108,7 @@
     "BuiltinConfig": {
       "required": ["builtin"],
       "properties": {
-        "builtin": { "type": "string", "enum": ["web_search", "web_fetch", "current_time", "calculator", "knowledge_search", "remember", "recall"] },
+        "builtin": { "type": "string", "enum": ["web_search", "web_fetch", "current_time", "calculator", "knowledge_search", "remember", "recall", "provision_resource", "claude_agent"] },
         "options": { "type": "object" }
       }
     }

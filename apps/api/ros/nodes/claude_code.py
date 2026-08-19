@@ -7,11 +7,13 @@ directory. This node adapts that loop to the ROS node contract (registry.py): a 
 channel, runs Claude Code to completion in a cwd, and writes the final assistant text back
 onto `messages` (with cost/usage surfaced in the returned state for the tracer/meters).
 
-Isolation note (see docs/design/secure-multitenant-execution.md): the SDK does real OS work
-in `cwd`. On the master/control plane this is the trusted-single-tenant dev path; the hardened
-multi-tenant path is to run this node inside the per-run VM (ros.runtime on the Freestyle/E2B
-execution backend), where the process owns exactly one run. The node itself is transport-only —
-it does not weaken any egress/authz boundary; those stay where the run executes.
+Isolation note (see docs/GAPS.md#g1 and docs/design/secure-multitenant-execution.md): the SDK does
+real OS work in `cwd`. On the master/control plane this is the trusted-single-tenant dev path; the
+hardened multi-tenant path is to run this node inside the per-run VM (ros.runtime on the Freestyle/
+E2B execution backend), where the process owns exactly one run. The node itself is transport-only —
+it does not weaken any egress/authz boundary; those stay where the run executes. Hard multi-tenant
+isolation is an OPEN GAP (G1) pending the `sandbox` execution backend — do not expose this node to
+untrusted multi-tenant callers until then.
 """
 
 from __future__ import annotations

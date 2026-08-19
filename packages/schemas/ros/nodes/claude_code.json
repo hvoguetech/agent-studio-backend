@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ros/nodes/claude_code",
+  "type": "object",
+  "properties": {
+    "model": {
+      "type": "string",
+      "description": "Bare Anthropic model id for the Claude Agent SDK (e.g. 'claude-sonnet-4-5'). NOT the 'provider:model' ROS form. Blank = the CLI's default.",
+      "x-ui": { "widget": "text" }
+    },
+    "system_prompt": {
+      "type": "string",
+      "description": "Extra system prompt appended to Claude Code's own agent prompt.",
+      "x-ui": { "widget": "textarea", "modelView": true }
+    },
+    "workspace": {
+      "type": "string",
+      "description": "Absolute working directory the agent operates in (reads/edits/shell). Blank = ROS_CLAUDE_CODE_WORKSPACE env, else a per-run temp dir."
+    },
+    "permission_mode": {
+      "type": "string",
+      "enum": ["default", "acceptEdits", "bypassPermissions", "plan"],
+      "default": "acceptEdits",
+      "description": "How the agent handles tool/edit permission prompts. Autonomous runs use 'acceptEdits'; 'plan' is read-only planning."
+    },
+    "max_turns": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200,
+      "default": 40,
+      "description": "Hard cap on the agent-loop turns so a run can't loop forever."
+    },
+    "allowed_tools": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Allow-list of tool names the agent may use (e.g. 'Read', 'Edit', 'Bash'). Omit to allow the CLI defaults."
+    },
+    "disallowed_tools": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Deny-list of tool names to withhold from the agent."
+    },
+    "setting_sources": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["user", "project", "local"] },
+      "description": "Which on-disk settings & CLAUDE.md the CLI loads. Omit for a hermetic run (loads none)."
+    }
+  },
+  "additionalProperties": false,
+  "$comment": "ports: in:[messages], out:[messages]"
+}
