@@ -38,28 +38,30 @@ The two are coupled: the code node's cross-node handoff *is* the artifact plane,
 | Compile context | `ros/engine/context.py` | Carries `sandbox`, `sandbox_backend_for()`, `runtime_env`, `agent_id` (governed subject), `end_user`, `egress_policy`, `checkpointer`. |
 | Sandbox / code exec | `ros/tools/sandbox/base.py` | `CodeExecutor` is **STATELESS** (`run(CodeRunRequest{source,kwargs}) -> CodeRunResult`). Tiers `restricted` (in-proc) / `freestyle` (VM). **Not a persistent workspace.** |
 | Execution backend | `ros/execution/{registry,freestyle}.py` | **Per-run**: `local` (master process) or `freestyle` (whole run on a VM). |
-| Object storage | `ros/services/providers/railway_storage.py` | Provisions an **S3 bucket per agent** (creds as `secret://` refs + endpoint). **No generic blob-store service abstraction exists.** |
+| Object storage | `ros/artifacts/{base,store,backends}.py` | **WS7 phases 1–2 already shipped**: `ObjectStore` (local + s3), `BucketResolver`, `ArtifactStore` (content-addressed `{env}/{tenant}/{project}/{run}/{sha}/{file}` key scheme, size cap), an `Artifact` DB row + `artifact:read/write` router. See `docs/design/artifact-storage.md`. |
+| Bucket provisioning | `ros/services/providers/railway_storage.py` | Provisions an **S3 bucket per agent** (creds as `secret://` refs + endpoint) — the infra the `s3` tier points at. |
 | Governance | `ros/services/apikeys.py`, `ros/authz.py`, `middleware_compiler.py` | Governed-subject `allows()`/`enforce_capacity()`; route perms; `tenant_budget` hard-cap middleware; per-run `egress_policy`. |
 
 **Two consequences that shape the design:**
 - The code node needs a **new stateful `Workspace` seam** — `CodeExecutor` can't model a checked-out repo + shell.
-- The artifact plane needs a small **`ArtifactStore` abstraction** — nothing generic exists; only the raw S3 provider.
+- The artifact plane needed only its **graph half** — the store existed (WS7), but nothing connected it to the engine: no state channel, no reducer, no producer/consumer path. That half is slice 1 (shipped; = WS7 phase 3's "refs-in-state").
 
 ## 4. Design
 
 ### 4.1 Artifact plane (Part A)
 
-**Artifact reference** (what rides the state; small, checkpoint-safe):
+**Artifact entry** (what rides the state; small, checkpoint-safe) — a serialized `ArtifactRef`
+plus the one piece of graph metadata the plane needs:
 ```
-ArtifactRef = { id, name, content_type, size, sha256,
-                uri,              # store-resolvable locator (never bytes)
-                produced_by,      # node id
-                scope,            # tenant/project/run[/agent/end_user]
-                created_at }
+{ bucket, key, sha256, size, content_type, filename,   # ArtifactRef — the durable pointer
+  produced_by }                                        # emitting node id — what consumers filter on
 ```
+Deliberately **no id / timestamp**: the key is already content-addressed, so a replayed emit
+reproduces the entry byte-for-byte and the reducer treats it as an update, not a duplicate.
 
-- **`artifacts` state channel** — a `list[json]` channel with a new **append/merge-by-id reducer** registered in `state.py:REDUCERS` (e.g. `"artifacts"`), added as a default channel alongside `messages`. Parallel branches merge without clobbering; re-emitting the same `id` updates in place.
-- **`ArtifactStore`** (new, `ros/services/artifacts.py`) — `put(bytes|stream, meta) -> ArtifactRef`, `open(ref) -> stream`, `delete(ref)`. **Tiers** mirroring the sandbox registry: **`s3` is the shipped default** (the provisioned bucket, creds from `runtime_env`); `local` (a dir on disk) is retained as the **test/dev fake only**. **Content-addressed** by `sha256` (dedup, caching, deterministic replay); keys namespaced by `scope`.
+- **`artifacts` state channel** — a `list[json]` channel with an **append/merge-by-`(bucket, key)` reducer** (`state.py:REDUCERS["artifacts"]`), added as a **default channel alongside `messages`** so any node can hand off a file without the author declaring the channel. Parallel branches merge without clobbering; re-emitting updates in place. `langgraph_transpile` mirrors both (exported graphs carry the same channel + reducer).
+- **`ArtifactStore`** — **already exists** (`ros/artifacts/store.py`, WS7): `put(...) -> ArtifactRef`, `get`, `delete`, `presign`, `delete_run/_project`, content-addressed keys, `BucketResolver`, size cap. Tiers `local` / `s3` via `ROS_ARTIFACT_STORE`; **deployed default is `s3`** (the provisioned bucket), `local` is the test/dev fake. Nothing new was needed here.
+- **`ros/artifacts/state.py`** (new) — the bridge: `to_entry`/`from_entry`, `emit(...)` (put bytes → entry; write-ahead), `load(entry)` (entry → bytes), `select(state, produced_by=…)`, `run_scope(config)` (artifacts key on `configurable.run_id`, now carried by every run invocation).
 - **Reachable from the VM** — because the code node's loop runs *on* the workspace VM (§4.2), the store's S3 creds must ride the **`RunManifest` secret refs / `runtime_env`**, not master-only config. The VM writes artifacts directly to the bucket and returns **refs**; bytes never transit the orchestrator.
 - **Producer / consumer** — a node returns `{"artifacts": [ref]}`; downstream nodes read `state["artifacts"]` (or select specific refs via existing edge `mappings` JMESPath). No new routing primitive needed for MVP.
 - **Checkpoint discipline** — refs in state (checkpointed, tiny); **bytes never in the checkpoint**. GC/TTL sweeps the store on run/thread completion.
@@ -122,7 +124,7 @@ class Workspace(Protocol):
 
 | # | Slice | Infra | Acceptance |
 |---|---|---|---|
-| **1** | **Artifact plane (S3)** — `ArtifactRef` + `artifacts` channel/reducer in `state.py` + `ArtifactStore` (s3 tier on the provisioned bucket, local fake for CI) + node_io glue | bucket | producer node writes a ref, consumer node reads bytes back from S3; content-addressed key; **blob never in the checkpoint**; unit tests on the fake + one LIVE-VERIFY against the bucket |
+| **1** ✅ | **Artifact plane** — `artifacts` channel + merge-by-`(bucket,key)` reducer (`engine/state.py`, mirrored in `langgraph_transpile`), `ros/artifacts/state.py` bridge (`emit`/`load`/`select`/`to_entry`/`from_entry`/`run_scope`), `run_id` on every run's `configurable`. Store reused as-is from WS7 | bucket | **Done** — `tests/test_artifact_plane.py` (18): producer→consumer handoff through a compiled graph, parallel-branch merge, in-place update on re-emit, bytes absent from the checkpoint, JMESPath edge selection. ⚠️ still **LIVE-VERIFY pending** against the real bucket (`ROS_ARTIFACT_STORE=s3`) |
 | **2** | **Workspace resource + lease** — workspace record as a provisioned resource keyed by `(agent, end_user)`; VM create/attach/GC; Redis lease acquire/heartbeat/release | VM | two concurrent runs **serialize** on one workspace; lease survives a master restart; stale lease reclaimed on TTL; idle workspace swept |
 | **3** | **`Workspace` seam + `FreestyleWorkspace`** — protocol + `get_workspace()` registry + VM impl (`checkout`/`read`/`write`/`ls`/`exec`/`diff`/`commit`/`push`/`snapshot`); git token as `secret://`; egress allow-list | VM | clone a real repo on the VM, edit, run a build, `diff`, `snapshot` → artifact in S3; token never in prompt/state; egress denial verified |
 | **4** | **`code` node (delegate-on-VM)** — `NodeSpec` + factory; dispatches the deep-agent loop onto the VM via the runner/driver path; collects refs. Ships with the **`code:execute` capability + `ROS_ENABLE_CODE_NODE` gate** (pulled forward from old slice 4) | VM | node clones repo, edits, returns a diff artifact; downstream node consumes it; **denied without `code:execute` / when the gate is off**; optional: PR opened |

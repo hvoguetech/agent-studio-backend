@@ -28,16 +28,59 @@ def _merge(a: dict | None, b: dict | None) -> dict:
     return {**(a or {}), **(b or {})}
 
 
+def _as_list(v: Any) -> list:
+    """Tolerate a node writing a single entry (or nothing) instead of a list."""
+    if v is None:
+        return []
+    return list(v) if isinstance(v, list) else [v]
+
+
+def _artifact_identity(entry: Any) -> tuple | None:
+    """(bucket, key) — the identity of an artifact entry, or None when it has none."""
+    if isinstance(entry, dict) and entry.get("key"):
+        return (entry.get("bucket"), entry["key"])
+    return None
+
+
+def _merge_artifacts(a: Any, b: Any) -> list:
+    """Reducer for the `artifacts` channel: append, updating in place by (bucket, key).
+
+    Entries are the plain dicts built by `ros.artifacts.state.to_entry` (a serialized
+    `ArtifactRef` + `produced_by`) — refs, never bytes. Parallel branches merge without
+    clobbering each other, and because store keys are content-addressed, re-emitting the same
+    artifact on a resume/retry updates its slot instead of appending a duplicate. Entries with
+    no identity (malformed) are appended untouched rather than dropped."""
+    out = _as_list(a)
+    index: dict[tuple, int] = {}
+    for i, entry in enumerate(out):
+        ident = _artifact_identity(entry)
+        if ident is not None:
+            index.setdefault(ident, i)
+    for entry in _as_list(b):
+        ident = _artifact_identity(entry)
+        if ident is not None and ident in index:
+            out[index[ident]] = entry
+        else:
+            if ident is not None:
+                index[ident] = len(out)
+            out.append(entry)
+    return out
+
+
 # Doc 4 StateFieldSpec.reducer -> binary reducer. "last" => no reducer (LastValue/overwrite).
 REDUCERS: dict[str, Any] = {
     "add_messages": add_messages,
     "add": operator.add,
     "merge": _merge,
+    "artifacts": _merge_artifacts,
     # "last" intentionally absent: a plain annotation => overwrite semantics.
 }
 
 # Sensible default so agent nodes always have a messages channel to read/write.
 _DEFAULT_MESSAGES = {"type": "list[message]", "reducer": "add_messages"}
+# ...and an artifact channel, so ANY node can hand a file to a downstream node by reference
+# without the workflow author declaring the channel first (docs/specs/artifacts-and-code-node.md).
+_DEFAULT_ARTIFACTS = {"type": "list[json]", "reducer": "artifacts"}
 
 
 def build_state_typeddict(state_cfg: dict[str, dict], name: str = "WorkflowState") -> type:
@@ -50,6 +93,7 @@ def build_state_typeddict(state_cfg: dict[str, dict], name: str = "WorkflowState
     """
     cfg = dict(state_cfg or {})
     cfg.setdefault("messages", _DEFAULT_MESSAGES)
+    cfg.setdefault("artifacts", _DEFAULT_ARTIFACTS)
 
     annotations: dict[str, Any] = {}
     for field, spec in cfg.items():

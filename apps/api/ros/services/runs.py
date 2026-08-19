@@ -835,7 +835,7 @@ class RunService:
             activity: Any = _deque()
             tracer = ROSTracer(event_sink=activity.append)
             config: dict[str, Any] = {
-                "configurable": {"thread_id": thread.lg_thread_id},
+                "configurable": {"thread_id": thread.lg_thread_id, "run_id": run_id},
                 "callbacks": [tracer],
                 "recursion_limit": _recursion_limit(wf.executable),
             }
@@ -1041,7 +1041,7 @@ class RunService:
 
                 checkpointer = InMemorySaver()
             tracer = ROSTracer()
-            config = {"configurable": {"thread_id": thread.lg_thread_id}, "callbacks": [tracer], "recursion_limit": _recursion_limit(wf.executable)}
+            config = {"configurable": {"thread_id": thread.lg_thread_id, "run_id": run_id}, "callbacks": [tracer], "recursion_limit": _recursion_limit(wf.executable)}
             tlock = await thread_locks.acquire_cm(thread.lg_thread_id)
             try:
                 async with tenant_concurrency.slot(tenant_id, settings.max_concurrent_runs_per_tenant), tlock:
@@ -1154,7 +1154,7 @@ class RunService:
             thread = (await session.execute(select(Thread).where(Thread.id == run.thread_id))).scalar_one()
 
             tracer = ROSTracer()
-            config = {"configurable": {"thread_id": thread.lg_thread_id}, "callbacks": [tracer], "recursion_limit": _recursion_limit(wf.executable)}
+            config = {"configurable": {"thread_id": thread.lg_thread_id, "run_id": run_id}, "callbacks": [tracer], "recursion_limit": _recursion_limit(wf.executable)}
             tlock = await thread_locks.acquire_cm(thread.lg_thread_id)
             try:
                 async with tenant_concurrency.slot(tenant_id, settings.max_concurrent_runs_per_tenant), tlock:
@@ -1230,7 +1230,7 @@ class RunService:
                 checkpointer = InMemorySaver()
             tracer = ROSTracer()
             config = {
-                "configurable": {"thread_id": thread.lg_thread_id},
+                "configurable": {"thread_id": thread.lg_thread_id, "run_id": run_id},
                 "callbacks": [tracer],
                 "recursion_limit": _recursion_limit(wf.executable),
             }
@@ -1299,7 +1299,7 @@ class RunService:
 
                 checkpointer = InMemorySaver()
             config = {
-                "configurable": {"thread_id": thread.lg_thread_id},
+                "configurable": {"thread_id": thread.lg_thread_id, "run_id": run_id},
                 "recursion_limit": _recursion_limit(wf.executable),
             }
             ctx = await build_compile_context(
@@ -1698,7 +1698,7 @@ class RunService:
                 )
                 graph = compile_workflow(wf.executable, ctx)
                 config = {
-                    "configurable": {"thread_id": thread.lg_thread_id},
+                    "configurable": {"thread_id": thread.lg_thread_id, "run_id": run_id},
                     "recursion_limit": _recursion_limit(wf.executable),
                 }
                 snapshot = await graph.aget_state(config)

@@ -71,11 +71,17 @@ def _fold_subagents(nodes_by_id: dict, edges: list) -> tuple[set, dict]:
     return child_ids, folded
 
 
-def _state_lines(state_cfg: dict) -> list[str]:
+def _default_state(state_cfg: dict) -> dict:
+    """The engine's implicit channels (ros.engine.state.build_state_typeddict) — keep in sync."""
     cfg = dict(state_cfg or {})
     cfg.setdefault("messages", {"type": "list[message]", "reducer": "add_messages"})
+    cfg.setdefault("artifacts", {"type": "list[json]", "reducer": "artifacts"})
+    return cfg
+
+
+def _state_lines(state_cfg: dict) -> list[str]:
     out: list[str] = ["class State(TypedDict, total=False):"]
-    for field, spec in cfg.items():
+    for field, spec in _default_state(state_cfg).items():
         py = _PY.get((spec or {}).get("type", "json"), "Any")
         reducer = (spec or {}).get("reducer", "last")
         if reducer == "add_messages":
@@ -84,6 +90,8 @@ def _state_lines(state_cfg: dict) -> list[str]:
             out.append(f"    {field}: Annotated[{py}, operator.add]")
         elif reducer == "merge":
             out.append(f"    {field}: Annotated[{py}, _merge]")
+        elif reducer == "artifacts":
+            out.append(f"    {field}: Annotated[{py}, _merge_artifacts]")
         else:  # last / overwrite
             out.append(f"    {field}: {py}")
     return out
@@ -148,7 +156,7 @@ def transpile(executable: dict, *, name: str | None = None) -> str:
         return folded.get(n["id"]) or n.get("config") or {}
 
     state_cfg = ex.get("state", {})
-    reducers_used = {(s or {}).get("reducer") for s in ({**{"messages": {"reducer": "add_messages"}}, **(state_cfg or {})}).values()}
+    reducers_used = {(s or {}).get("reducer") for s in _default_state(state_cfg).values()}
     routed = {n["id"] for n in live_nodes if n.get("type") in ("router", "parallel_fanout")}
     has_ros = any(n.get("type") not in _INLINE for n in live_nodes)
     has_branches = any(isinstance(e, dict) and e.get("branches") for e in edges)
@@ -190,6 +198,30 @@ def transpile(executable: dict, *, name: str | None = None) -> str:
     if "merge" in reducers_used:
         L.append("def _merge(a, b):")
         L.append("    return {**(a or {}), **(b or {})}")
+        L.append("")
+        L.append("")
+    if "artifacts" in reducers_used:
+        # Mirrors ros.engine.state._merge_artifacts: append, updating in place by (bucket, key).
+        L.append("def _merge_artifacts(a, b):")
+        L.append("    def _ident(e):")
+        L.append("        return (e.get('bucket'), e['key']) if isinstance(e, dict) and e.get('key') else None")
+        L.append("    def _lst(v):")
+        L.append("        return [] if v is None else (list(v) if isinstance(v, list) else [v])")
+        L.append("    out = _lst(a)")
+        L.append("    index = {}")
+        L.append("    for i, e in enumerate(out):")
+        L.append("        ident = _ident(e)")
+        L.append("        if ident is not None:")
+        L.append("            index.setdefault(ident, i)")
+        L.append("    for e in _lst(b):")
+        L.append("        ident = _ident(e)")
+        L.append("        if ident is not None and ident in index:")
+        L.append("            out[index[ident]] = e")
+        L.append("        else:")
+        L.append("            if ident is not None:")
+        L.append("                index[ident] = len(out)")
+        L.append("            out.append(e)")
+        L.append("    return out")
         L.append("")
         L.append("")
     L += _state_lines(state_cfg)
