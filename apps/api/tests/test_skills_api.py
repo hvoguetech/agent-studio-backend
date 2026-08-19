@@ -93,3 +93,43 @@ async def test_viewer_can_read_but_not_write():
     async with _client() as c:
         assert (await c.get(BASE, headers=_auth(tok))).status_code == 200
         assert (await c.post(BASE, json=BODY, headers=_auth(tok))).status_code == 403
+
+
+async def test_a_saved_skill_reaches_a_compiled_agent():
+    """The seam between the two halves: a row saved through the API must come back out of
+    `load_skill_library` and materialize for an agent node."""
+    from ros.db import SessionLocal
+    from ros.nodes.agent_node import _resolve_skills
+    from ros.security import decode_token
+    from ros.services.skills import load_skill_library
+
+    tok = await _token("owner")
+    tenant_id = decode_token(tok)["tid"]
+    async with _client() as c:
+        created = (await c.post(BASE, json=BODY, headers=_auth(tok))).json()
+
+    async with SessionLocal() as s:
+        library = await load_skill_library(s, tenant_id, "p1")
+
+    files, _ = _resolve_skills([created["id"]], _Ctx(library))
+    assert files["/web-research/SKILL.md"].endswith("# do it")
+
+
+class _Ctx:
+    def __init__(self, library):
+        self.skill_library = library
+
+
+async def test_a_disabled_skill_is_not_loaded():
+    from ros.db import SessionLocal
+    from ros.security import decode_token
+    from ros.services.skills import load_skill_library
+
+    tok = await _token("owner")
+    tenant_id = decode_token(tok)["tid"]
+    async with _client() as c:
+        created = (await c.post(BASE, json=BODY, headers=_auth(tok))).json()
+        await c.patch(f"{BASE}/{created['id']}", json={"enabled": False}, headers=_auth(tok))
+
+    async with SessionLocal() as s:
+        assert await load_skill_library(s, tenant_id, "p1") == {}
