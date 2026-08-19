@@ -120,11 +120,18 @@ class Workspace(Protocol):
 
 **Consequence of #4:** the original "slices 1–4 need no external infra" property is gone. Sequencing below is therefore ordered by **dependency and risk**, not by infra-free-ness — and the `code:execute` gate moves *earlier* (into the node slice), since a live VM with repo write is ungated otherwise.
 
+**Open bug surfaced by slice 1's live-verify** — `railway-storage` records the bucket's **display
+name**, but the addressable S3 bucket name differs (`ros-artifacts` vs `ros-artifacts-eaduobyfsc`;
+PutObject to the former returns `NoSuchBucket`), and the credentials query drops `region`/`urlStyle`.
+Any agent provisioned through that provider therefore gets an unusable storage config. Blocks the
+"creds reach the VM via `runtime_env`" step in §4.1, so it must be fixed before slice 3. Needs a
+`RAILWAY_API_TOKEN` to confirm the GraphQL field names. See the module docstring.
+
 ## 6. Delivery plan (independently shippable slices)
 
 | # | Slice | Infra | Acceptance |
 |---|---|---|---|
-| **1** ✅ | **Artifact plane** — `artifacts` channel + merge-by-`(bucket,key)` reducer (`engine/state.py`, mirrored in `langgraph_transpile`), `ros/artifacts/state.py` bridge (`emit`/`load`/`select`/`to_entry`/`from_entry`/`run_scope`), `run_id` on every run's `configurable`. Store reused as-is from WS7 | bucket | **Done** — `tests/test_artifact_plane.py` (18): producer→consumer handoff through a compiled graph, parallel-branch merge, in-place update on re-emit, bytes absent from the checkpoint, JMESPath edge selection. ⚠️ still **LIVE-VERIFY pending** against the real bucket (`ROS_ARTIFACT_STORE=s3`) |
+| **1** ✅ | **Artifact plane** — `artifacts` channel + merge-by-`(bucket,key)` reducer (`engine/state.py`, mirrored in `langgraph_transpile`), `ros/artifacts/state.py` bridge (`emit`/`load`/`select`/`to_entry`/`from_entry`/`run_scope`), `run_id` on every run's `configurable`. Store reused as-is from WS7 | bucket | **Done + LIVE-VERIFIED.** `tests/test_artifact_plane.py` (18, offline): producer→consumer handoff through a compiled graph, parallel-branch merge, in-place update on re-emit, bytes absent from the checkpoint, JMESPath edge selection. `tests/test_artifact_plane_live.py` (4, opt-in) against the real Railway bucket: key scheme as stored, object present off the wire, presigned GET downloads unauthenticated, content-addressed overwrite + `delete_run` reclaim |
 | **2** | **Workspace resource + lease** — workspace record as a provisioned resource keyed by `(agent, end_user)`; VM create/attach/GC; Redis lease acquire/heartbeat/release | VM | two concurrent runs **serialize** on one workspace; lease survives a master restart; stale lease reclaimed on TTL; idle workspace swept |
 | **3** | **`Workspace` seam + `FreestyleWorkspace`** — protocol + `get_workspace()` registry + VM impl (`checkout`/`read`/`write`/`ls`/`exec`/`diff`/`commit`/`push`/`snapshot`); git token as `secret://`; egress allow-list | VM | clone a real repo on the VM, edit, run a build, `diff`, `snapshot` → artifact in S3; token never in prompt/state; egress denial verified |
 | **4** | **`code` node (delegate-on-VM)** — `NodeSpec` + factory; dispatches the deep-agent loop onto the VM via the runner/driver path; collects refs. Ships with the **`code:execute` capability + `ROS_ENABLE_CODE_NODE` gate** (pulled forward from old slice 4) | VM | node clones repo, edits, returns a diff artifact; downstream node consumes it; **denied without `code:execute` / when the gate is off**; optional: PR opened |

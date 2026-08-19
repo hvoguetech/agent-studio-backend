@@ -7,6 +7,15 @@ Provisions an isolated Railway project + a bucket, and returns its S3 credential
 ⚠️ LIVE-VERIFY: Railway does not publish the bucket GraphQL mutations in its LLM docs (only the
 `railway bucket` CLI). `bucketCreate` / bucket-credentials shapes are best-known and MUST be verified
 against a live token — isolated to this module; fake-transport tested only.
+
+⚠️ CONFIRMED DEFECT (2026-08-19, against a live Railway bucket): the S3 bucket name is NOT the
+bucket's display `name`. `railway bucket list` reports `ros-artifacts` while the addressable bucket
+is `ros-artifacts-eaduobyfsc`; a PutObject to the display name fails with `NoSuchBucket`. So the
+`bucket` recorded in `public`/`config` below is UNUSABLE by an agent as an S3 bucket. The CLI's
+`bucket credentials` payload carries the real one as `bucketName`, plus `region` and `urlStyle`
+(`virtual-host` → ROS_S3_ADDRESSING_STYLE=virtual), none of which `_BUCKET_CREDS` selects. Fixing it
+means adding those fields to the query — which needs a live `RAILWAY_API_TOKEN` to confirm the
+GraphQL field names first, since a wrong field name makes the whole query error out.
 """
 
 from __future__ import annotations
