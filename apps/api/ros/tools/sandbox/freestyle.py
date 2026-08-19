@@ -24,14 +24,19 @@ _SENTINEL = "__ROS_RESULT__"
 
 def _wrap(source: str, kwargs: dict[str, Any]) -> str:
     """User source + a bootstrap that calls main(**kwargs) (or reads top-level `result`) and
-    prints the JSON result behind a sentinel. kwargs are embedded as a literal (no stdin needed)."""
+    prints the JSON result behind a sentinel. kwargs are embedded as a literal (no stdin needed).
+
+    If the script both defines `main` AND assigned a top-level `result`, it already invoked main
+    itself (e.g. `result = main()`) - don't call it again (that would double-run the body and its
+    prints), matching the restricted tier's contract. The user's own print() output is ordinary
+    subprocess stdout and is captured/returned as `stdout` by the executor."""
     kwargs_json = json.dumps(kwargs)
     return (
         "import json as __rj\n"
         f"{source}\n"
         f"__kw = __rj.loads({kwargs_json!r})\n"
         "__main = globals().get('main')\n"
-        "__res = __main(**__kw) if callable(__main) else globals().get('result')\n"
+        "__res = __main(**__kw) if (callable(__main) and 'result' not in globals()) else globals().get('result')\n"
         f"print({_SENTINEL!r} + __rj.dumps(__res, default=str))\n"
     )
 
@@ -50,11 +55,19 @@ def _extract_stdout(payload: dict) -> str:
     return str(payload.get("result", ""))
 
 
-def _parse_result(stdout: str):
-    for line in reversed(stdout.splitlines()):
+def _parse_result(stdout: str) -> tuple[Any, str]:
+    """Return (result, user_stdout): the JSON behind the sentinel line, and everything the user's
+    own print() wrote (all lines except the sentinel), so test/assert output is surfaced."""
+    result = _MISSING = object()
+    user_lines: list[str] = []
+    for line in stdout.splitlines():
         if line.startswith(_SENTINEL):
-            return json.loads(line[len(_SENTINEL):])
-    raise ValueError("no result sentinel in sandbox stdout")
+            result = json.loads(line[len(_SENTINEL):])
+        else:
+            user_lines.append(line)
+    if result is _MISSING:
+        raise ValueError("no result sentinel in sandbox stdout")
+    return result, "\n".join(user_lines)
 
 
 class FreestyleExecutor:
@@ -92,13 +105,17 @@ class FreestyleExecutor:
             stderr = payload.get("stderr") or payload.get("error") or stdout
             return CodeRunResult(ok=False, error=f"runtime:{str(stderr)[:500]}", metrics={"tier": "freestyle"})
         try:
-            result = _parse_result(stdout)
+            result, user_stdout = _parse_result(stdout)
         except (ValueError, json.JSONDecodeError):
             return CodeRunResult(
                 ok=False, error=f"runtime:no result ({stdout[:300]})", metrics={"tier": "freestyle"}
             )
         from ros.tools.code import cap_result
 
+        # Surface the user's own print() output alongside the result (test/assert output), matching
+        # the restricted tier's {"result", "stdout"} shape. Bare result when nothing was printed.
+        final_result = {"result": result, "stdout": user_stdout} if user_stdout.strip() else result
+
         return CodeRunResult(
-            ok=True, result=cap_result(result, req.max_result_chars), metrics={"tier": "freestyle"}
+            ok=True, result=cap_result(final_result, req.max_result_chars), metrics={"tier": "freestyle"}
         )

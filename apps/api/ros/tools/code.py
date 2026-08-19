@@ -58,10 +58,36 @@ def _guarded_import(name, *args, **kwargs):
     return __import__(name, *args, **kwargs)
 
 
-def _safe_globals() -> dict:
+class _CaptureCollector:
+    """A `_print_` collector RestrictedPython instantiates once per scope.
+
+    RestrictedPython rewrites `print(x)` to `_print_()._call_print(x)` and only exposes the text
+    via a scope-local `printed` name IF the user code reads it. We don't want to require that:
+    instead every collector instance appends to a SHARED buffer (`buffer`), so prints from module
+    level AND from inside `main()` are all captured and readable afterwards (see run_code). The
+    shared buffer is bound fresh per run in _safe_globals so runs never bleed into each other."""
+
+    def __init__(self, buffer: list, _getattr_=None):  # _getattr_ passed by RestrictedPython
+        self._buffer = buffer
+
+    def _call_print(self, *args, **kwargs):
+        sep = kwargs.get("sep", " ")
+        end = kwargs.get("end", "\n")
+        self._buffer.append(sep.join(str(a) for a in args) + end)
+
+    def __call__(self):  # `printed` access returns the joined text (RestrictedPython contract)
+        return "".join(self._buffer)
+
+
+def _safe_globals(print_buffer: list) -> dict:
     builtins = dict(safe_builtins)
     builtins.update(utility_builtins)
     builtins["__import__"] = _guarded_import
+
+    def _print_factory(_getattr_=None):
+        # Bound to THIS run's buffer; RestrictedPython calls it as `_print_(_getattr_=...)`.
+        return _CaptureCollector(print_buffer, _getattr_)
+
     return {
         "__builtins__": builtins,
         "_getiter_": default_guarded_getiter,
@@ -69,7 +95,9 @@ def _safe_globals() -> dict:
         "_iter_unpack_sequence_": guarded_iter_unpack_sequence,
         "_getattr_": safer_getattr,
         "_write_": full_write_guard,
-        "_print_": lambda *a, **k: None,
+        # Capture print() so a code tool's stdout (e.g. test/assert output) is surfaced instead of
+        # silently dropped (the old no-op). Bound to this run's buffer.
+        "_print_": _print_factory,
     }
 
 
@@ -78,21 +106,44 @@ class CodeToolError(RuntimeError):
 
 
 def run_code(source: str, kwargs: dict[str, Any]) -> Any:
-    """Compile + execute the source in a restricted namespace and return the result."""
+    """Compile + execute the source in a restricted namespace and return the result.
+
+    If the tool printed anything (captured via the shared collector), the return is
+    ``{"result": <value>, "stdout": <printed text>}`` so test/assert output is surfaced;
+    otherwise the bare return value is passed through unchanged (back-compat)."""
     try:
-        byte_code = compile_restricted(source, "<code-tool>", "exec")
+        # RestrictedPython warns "Prints, but never reads 'printed' variable" because our capture
+        # doesn't use its scope-local `printed` mechanism (we collect into a shared buffer instead).
+        # That's intentional, so silence the noise rather than spam it on every print()-using tool.
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="Line .*: Prints, but never reads 'printed' variable.")
+            warnings.filterwarnings("ignore", message="Line None: Prints, but never reads 'printed' variable.")
+            byte_code = compile_restricted(source, "<code-tool>", "exec")
     except SyntaxError as e:
         raise CodeToolError(f"compile error: {e}") from e
-    ns = _safe_globals()
+    print_buffer: list[str] = []
+    ns = _safe_globals(print_buffer)
     try:
         exec(byte_code, ns)  # noqa: S102 - sandboxed by RestrictedPython
     except Exception as e:  # noqa: BLE001
         raise CodeToolError(f"load error: {type(e).__name__}: {e}") from e
+    # Convention: define `def main(**kwargs)` OR assign a top-level `result`. If BOTH a callable
+    # `main` and a top-level `result` are present, the script already invoked main itself (e.g.
+    # `result = main()`) - so DON'T call it again (that double-ran the body, doubling stdout).
     main = ns.get("main")
+    has_result = "result" in ns
     try:
-        result = main(**kwargs) if callable(main) else ns.get("result")
+        if callable(main) and not has_result:
+            result = main(**kwargs)
+        else:
+            result = ns.get("result")
     except Exception as e:  # noqa: BLE001
         raise CodeToolError(f"runtime error: {type(e).__name__}: {e}") from e
+    stdout = "".join(print_buffer)
+    if stdout:
+        return {"result": result, "stdout": stdout}
     return result
 
 

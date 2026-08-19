@@ -124,6 +124,44 @@ async def test_freestyle_nonzero_status_is_runtime_error(monkeypatch):
         await execute_code({"source": "def main():\n    return 1\n"}, {})
 
 
+# --- stdout capture: a code tool's print() (e.g. test/assert output) is surfaced ---
+async def test_restricted_captures_stdout_alongside_result():
+    src = 'print("test_add: PASS")\nprint("test_sub: PASS")\nresult = "2 passed"'
+    out = await execute_code({"source": src}, {})
+    assert out == {"result": "2 passed", "stdout": "test_add: PASS\ntest_sub: PASS\n"}
+
+
+async def test_restricted_no_print_returns_bare_value():
+    # Back-compat: nothing printed -> the bare return value, not a {"result", "stdout"} wrapper.
+    out = await execute_code({"source": "def main(x):\n    return x * 2\n"}, {"x": 5})
+    assert out == 10
+
+
+async def test_restricted_print_inside_main_not_doubled():
+    # A script that both defines main AND calls it into result must not double-run (doubled stdout).
+    src = 'def main():\n    print("ran once")\n    return 1\nresult = main()'
+    out = await execute_code({"source": src}, {})
+    assert out == {"result": 1, "stdout": "ran once\n"}
+
+
+async def test_freestyle_captures_user_stdout(monkeypatch):
+    class _StdoutClient(_FakeClient):
+        async def post(self, url, json=None, headers=None):
+            # The VM's stdout carries the user's prints PLUS the sentinel line.
+            return _FakeResp({"stdout": 'test_x: PASS\ntest_y: PASS\n__ROS_RESULT__{"ok": true}\n', "statusCode": 0})
+
+    _use_freestyle(monkeypatch, _StdoutClient)
+    out = await execute_code({"source": 'print("test_x: PASS")\nresult = {"ok": True}'}, {})
+    assert out == {"result": {"ok": True}, "stdout": "test_x: PASS\ntest_y: PASS"}
+
+
+async def test_freestyle_no_user_stdout_returns_bare_result(monkeypatch):
+    # Only the sentinel line (default fake returns __ROS_RESULT__{"sum": 7}) -> bare result.
+    _use_freestyle(monkeypatch)  # default _FakeClient: stdout is sentinel-only, no user prints
+    out = await execute_code({"source": "def main(a, b):\n    return a + b\n"}, {"a": 3, "b": 4})
+    assert out == {"sum": 7}
+
+
 # --- prod guard: isolating executor no longer needs the unsandboxed ack ---
 def _prod(monkeypatch, executor, ack):
     monkeypatch.setattr(settings, "environment", "production")
