@@ -48,6 +48,13 @@ For a real run, a VM needs Python + the `ros` package + the `claude` CLI/SDK. `b
 a Freestyle snapshot named **`ros-claude-backend`** with all of that, verifies a fresh VM booted from
 it can run `python -m ros.runtime` and `claude`, and prints the snapshot id.
 
+**Baked runtimes:** Python 3.x, Node 22+, and **Java — Amazon Corretto 21.0.2** (pinned;
+`java`/`javac` on PATH, `JAVA_HOME=/opt/jdk`), plus gcc/build-essential, git, ripgrep, psql, sqlite3.
+
+**Version metadata:** each image writes `/opt/ros-image/versions.json` (python, node, npm, java, jdk,
+claude, ros, built_at). The bake reads this back and prints it next to the snapshot id, so every image
+carries — and self-reports — the exact runtime versions it was built with.
+
 ```bash
 npm run build
 ROS_INSTALL_REPO_URL="https://github.com/hvoguetech/agent-studio-backend.git" \

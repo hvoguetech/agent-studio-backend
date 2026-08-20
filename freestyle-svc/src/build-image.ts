@@ -41,6 +41,7 @@ async function main() {
 
   let snapshotId = "";
   let verifyOut = "";
+  let metaOut = "";
   try {
     // Install DETACHED (a multi-minute blocking exec drops Freestyle's exec HTTP connection): write
     // the build script with the repo env, launch it in the background, then poll a ready marker.
@@ -59,7 +60,7 @@ async function main() {
     console.log("BUILD-IMAGE: toolchain install launched; polling (up to 20m)…");
 
     let ready = false;
-    for (let i = 0; i < 240; i++) { // 240 × 5s = 20 min
+    for (let i = 0; i < 360; i++) { // 360 × 5s = 30 min (heavier install: prod extras + Corretto JDK)
       await sleep(5000);
       const res: any = await vm
         .exec({ command: `bash -lc 'test -f /tmp/image.ready && echo READY || tail -1 /tmp/build.out 2>/dev/null'`, timeoutMs: 15000 })
@@ -68,10 +69,10 @@ async function main() {
       if (out.includes("READY")) { ready = true; break; }
       if (i % 6 === 0) console.log(`  [${i * 5}s] ${out.slice(-160)}`);
     }
-    if (!ready) throw new Error("toolchain install did not finish within 20m");
+    if (!ready) throw new Error("toolchain install did not finish within 30m");
 
     const versions: any = await vm.exec({
-      command: `bash -lc 'python3 --version; node --version 2>/dev/null || echo no-node; claude --version 2>/dev/null || echo no-claude; python3 -c "import ros; print(\\"ros\\", ros.__version__)" 2>/dev/null || echo no-ros; python3 -c "import claude_agent_sdk" 2>/dev/null && echo agent-sdk-ok || echo no-agent-sdk; python3 -m ros.runtime --help >/dev/null 2>&1 && echo runtime-ok || echo no-runtime'`,
+      command: `bash -lc 'python3 --version; node --version 2>/dev/null || echo no-node; java -version 2>&1 | head -1 || echo no-java; claude --version 2>/dev/null || echo no-claude; python3 -c "import ros; print(\\"ros\\", ros.__version__)" 2>/dev/null || echo no-ros; python3 -c "import claude_agent_sdk" 2>/dev/null && echo agent-sdk-ok || echo no-agent-sdk; python3 -m ros.runtime --help >/dev/null 2>&1 && echo runtime-ok || echo no-runtime'`,
       timeoutMs: 30000,
     });
     console.log("BUILD-IMAGE: builder tool versions →\n" + `${versions.stdout ?? ""}`);
@@ -92,16 +93,26 @@ async function main() {
     console.log("BUILD-IMAGE: verifying a fresh VM booted from the snapshot…");
     const boot: any = await fs.vms.create({ snapshotId, persistence: { type: "sticky", priority: 1 } } as any);
     const v: any = await boot.vm
-      .exec({ command: `bash -lc 'python3 --version && (python3 -c "import ros; print(\\"ros\\", ros.__version__)" || echo no-ros) && (python3 -m ros.runtime --help >/dev/null 2>&1 && echo runtime-ok || echo no-runtime) && (claude --version 2>/dev/null || echo no-claude) && (python3 -c "import claude_agent_sdk" 2>/dev/null && echo agent-sdk-ok || echo no-agent-sdk)'`, timeoutMs: 30000 })
+      .exec({ command: `bash -lc 'python3 --version && (python3 -c "import ros; print(\\"ros\\", ros.__version__)" || echo no-ros) && (python3 -m ros.runtime --help >/dev/null 2>&1 && echo runtime-ok || echo no-runtime) && (java -version 2>&1 | head -1 || echo no-java) && (claude --version 2>/dev/null || echo no-claude) && (python3 -c "import claude_agent_sdk" 2>/dev/null && echo agent-sdk-ok || echo no-agent-sdk)'`, timeoutMs: 30000 })
       .catch((e: any) => ({ stdout: "", stderr: String(e?.message ?? e) }));
     verifyOut = `${v.stdout ?? ""}${v.stderr ?? ""}`.trim();
     console.log("BUILD-IMAGE: from-snapshot check →\n" + verifyOut);
+
+    // Read back the version metadata baked into the image, so the operator records exactly which
+    // python/node/java/JDK this snapshot carries alongside its id.
+    const meta: any = await boot.vm
+      .exec({ command: `bash -lc 'cat /opt/ros-image/versions.json 2>/dev/null || echo "{}"'`, timeoutMs: 15000 })
+      .catch((e: any) => ({ stdout: "", stderr: String(e?.message ?? e) }));
+    metaOut = `${meta.stdout ?? ""}`.trim();
+
     await boot.vm.delete().catch(() => {});
   } finally {
     await vm.delete().catch(() => {});
   }
 
-  const ok = snapshotId && verifyOut.includes("runtime-ok") && verifyOut.includes("ros ");
+  const ok = snapshotId && verifyOut.includes("runtime-ok") && verifyOut.includes("ros ")
+    && !verifyOut.includes("no-java");
+  console.log(`\nBUILD-IMAGE: image version metadata (baked at /opt/ros-image/versions.json) →\n${metaOut || "(none)"}`);
   console.log(`\nBUILD-IMAGE: ${ok ? "SUCCESS" : "REVIEW OUTPUT"} — set on ros-freestyle-svc:\n  ROS_SNAPSHOT_ID=${snapshotId}`);
   process.exit(snapshotId ? 0 : 1);
 }

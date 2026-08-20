@@ -158,6 +158,17 @@ function shq(s: string): string {
 export const TOOLCHAIN_STEPS: string[] = [
   `export DEBIAN_FRONTEND=noninteractive`,
   `(apt-get update && apt-get install -y --no-install-recommends build-essential git curl ca-certificates gnupg jq ripgrep unzip postgresql-client sqlite3 python3-venv python3-pip nodejs npm) || true`,
+  // Java — Amazon Corretto 21.0.2 (pinned). Install the exact Corretto build to /opt/jdk and put
+  // java/javac on PATH via /usr/local/bin symlinks + JAVA_HOME in /etc/profile.d (login shells).
+  // Arch-aware URL (x64/aarch64). Pinned version so the image's Java is deterministic.
+  `CORRETTO_VER=21.0.2.13.1; ` +
+    `ARCH="$(uname -m)"; case "$ARCH" in x86_64) CJ=x64;; aarch64|arm64) CJ=aarch64;; *) CJ=x64;; esac; ` +
+    `(rm -rf /opt/jdk && mkdir -p /opt/jdk && ` +
+    `echo "installing Amazon Corretto \${CORRETTO_VER} (\${CJ})…" && ` +
+    `curl -fsSL --retry 3 --max-time 300 "https://corretto.aws/downloads/resources/\${CORRETTO_VER}/amazon-corretto-\${CORRETTO_VER}-linux-\${CJ}.tar.gz" -o /tmp/corretto.tgz && ` +
+    `tar -xzf /tmp/corretto.tgz -C /opt/jdk --strip-components=1 && rm -f /tmp/corretto.tgz && ` +
+    `ln -sf /opt/jdk/bin/java /usr/local/bin/java && ln -sf /opt/jdk/bin/javac /usr/local/bin/javac && ` +
+    `printf 'export JAVA_HOME=/opt/jdk\\nexport PATH=/opt/jdk/bin:$PATH\\n' > /etc/profile.d/java.sh) || echo "JAVA INSTALL FAILED"`,
   // Clone the ros backend repo and install the `ros` package (prod extras) so `python -m ros.runtime`
   // resolves. ROS_INSTALL_REPO_URL is a plain https URL; ROS_INSTALL_TOKEN (when set) is spliced in
   // VM-side as an x-access-token for a private clone; ROS_INSTALL_REF optionally pins a branch/tag
@@ -177,4 +188,19 @@ export const TOOLCHAIN_STEPS: string[] = [
   // Bake the shared JSON schemas at the path config.py expects (/app/packages/schemas) so a manifest
   // run can validate node/tool config offline.
   `(mkdir -p /app && cp -r /opt/ros-src/packages /app/packages) || true`,
+  // Bake a version-metadata manifest INTO the image at /opt/ros-image/versions.json so every VM
+  // booted from this snapshot self-reports the exact runtimes it carries (python, node, java/JDK,
+  // claude, ros). The bake reads this back to record image metadata; downstream can read it at runtime.
+  `mkdir -p /opt/ros-image && ` +
+    `PY="$(python3 --version 2>&1 | awk '{print $2}')"; ` +
+    `NODE="$(node --version 2>/dev/null | sed 's/^v//')"; ` +
+    `NPM="$(npm --version 2>/dev/null)"; ` +
+    `JAVA="$(java -version 2>&1 | head -1 | sed -E 's/.*version \"([^\"]+)\".*/\\1/')"; ` +
+    `JDK="amazoncorretto:21.0.2"; ` +
+    `CLAUDE="$(claude --version 2>/dev/null | awk '{print $1}')"; ` +
+    `ROS="$(python3 -c 'import ros; print(ros.__version__)' 2>/dev/null)"; ` +
+    `BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; ` +
+    `printf '{\\n  "image": "ros-claude-backend",\\n  "built_at": "%s",\\n  "python": "%s",\\n  "node": "%s",\\n  "npm": "%s",\\n  "java": "%s",\\n  "jdk": "%s",\\n  "claude": "%s",\\n  "ros": "%s"\\n}\\n' ` +
+    `"$BUILT" "$PY" "$NODE" "$NPM" "$JAVA" "$JDK" "$CLAUDE" "$ROS" > /opt/ros-image/versions.json; ` +
+    `cat /opt/ros-image/versions.json`,
 ];
