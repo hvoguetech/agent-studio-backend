@@ -32,6 +32,37 @@ log = logging.getLogger("ros.claude_code")
 # Turn cap so a runaway agent loop can't burn tokens forever. Overridable via config.
 _DEFAULT_MAX_TURNS = 40
 
+# Cap on captured subprocess stderr so a chatty CLI can't blow up the error message / memory.
+_STDERR_CAP_BYTES = 16_384
+
+
+class ClaudeCodeError(RuntimeError):
+    """Raised when the Claude Code run fails, carrying the exact CLI/subprocess error.
+
+    The Claude Agent SDK's own "Command failed with exit code 1 ... Check stderr output for
+    details" text is a placeholder — the real detail is on the subprocess stderr and on the
+    terminal `ResultMessage` (result prose, `errors`, `subtype`, `api_error_status`). This node
+    captures both and surfaces them here instead of swallowing them, so callers see *why* the run
+    failed rather than the placeholder.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        exit_code: int | None = None,
+        stderr: str | None = None,
+        subtype: str | None = None,
+        errors: list[str] | None = None,
+        api_error_status: int | None = None,
+    ):
+        self.exit_code = exit_code
+        self.stderr = stderr
+        self.subtype = subtype
+        self.errors = errors or []
+        self.api_error_status = api_error_status
+        super().__init__(message)
+
 
 def _last_human_text(messages: list[BaseMessage]) -> str:
     """The prompt for Claude Code = the most recent human/user message text. Falls back to the
@@ -78,13 +109,18 @@ def _resolve_cwd(config: dict) -> str:
     return workspace
 
 
-def _sdk_options(config: dict, cwd: str):
+def _sdk_options(config: dict, cwd: str, stderr_sink):
     """Build ClaudeAgentOptions from node config. Imported lazily so the core never needs the SDK
-    unless a workflow actually uses this node."""
+    unless a workflow actually uses this node.
+
+    `stderr_sink` is the SDK's per-line stderr callback: the real subprocess error detail (the CLI's
+    "Check stderr output for details" placeholder refers to *this* stream) only reaches us here, so
+    we always wire it up to buffer stderr for error reporting."""
     from claude_agent_sdk import ClaudeAgentOptions
 
     kwargs: dict[str, Any] = {
         "cwd": cwd,
+        "stderr": stderr_sink,
         # "default" | "acceptEdits" | "bypassPermissions" | "plan". Autonomous runs (no human at the
         # keyboard) need edits to not block on a prompt; default to acceptEdits, overridable.
         "permission_mode": config.get("permission_mode", "acceptEdits"),
@@ -115,6 +151,71 @@ def _inject_anthropic_key(ctx: CompileContext) -> dict[str, str]:
     return {"ANTHROPIC_API_KEY": key} if key else {}
 
 
+def _join_stderr(stderr_lines: list[str]) -> str:
+    """Collapse the buffered stderr lines to a single trimmed string (empty if none captured)."""
+    return "".join(stderr_lines).strip()
+
+
+def _result_error(message: Any, stderr_lines: list[str]) -> ClaudeCodeError:
+    """Build a ClaudeCodeError from a terminal ResultMessage with is_error=True.
+
+    Pulls the CLI's structured failure fields (result prose, `errors`, `subtype`, `api_error_status`)
+    and appends the captured subprocess stderr so the exact detail is in the message, not a placeholder."""
+    result_text = getattr(message, "result", None) or ""
+    subtype = getattr(message, "subtype", None)
+    errors = getattr(message, "errors", None) or []
+    api_error_status = getattr(message, "api_error_status", None)
+    stderr = _join_stderr(stderr_lines)
+
+    parts: list[str] = ["claude_code run failed"]
+    if subtype and subtype != "success":
+        parts.append(f"({subtype})")
+    if api_error_status:
+        parts.append(f"[api status {api_error_status}]")
+    detail = result_text.strip() or "; ".join(str(e) for e in errors) or "(no result text)"
+    msg = f"{' '.join(parts)}: {detail}"
+    if stderr and stderr not in detail:
+        msg = f"{msg}\nstderr:\n{stderr}"
+    return ClaudeCodeError(
+        msg,
+        subtype=subtype,
+        errors=[str(e) for e in errors],
+        api_error_status=api_error_status,
+        stderr=stderr or None,
+    )
+
+
+def _wrap_sdk_error(exc: Exception, stderr_lines: list[str]) -> Exception:
+    """Normalize whatever propagated out of the SDK loop into a detailed error.
+
+    - A ClaudeCodeError we already raised (from is_error) passes through unchanged.
+    - The SDK's ProcessError/ResultError carry `.exit_code`/`.stderr` (and, for ResultError,
+      `.subtype`/`.errors`/`.api_error_status`); we fold those plus the captured stderr into a
+      ClaudeCodeError so nothing is lost.
+    - ImportError (missing SDK) and any other exception pass through unchanged."""
+    if isinstance(exc, (ClaudeCodeError, ImportError)):
+        return exc
+
+    exit_code = getattr(exc, "exit_code", None)
+    # Prefer the exception's own stderr (ProcessError.stderr) but fall back to our captured buffer,
+    # which is populated even when the SDK left `.stderr` as the "Check stderr output" placeholder.
+    exc_stderr = getattr(exc, "stderr", None)
+    captured = _join_stderr(stderr_lines)
+    stderr = "\n".join(s for s in (exc_stderr, captured) if s and s not in (exc_stderr or "")) or exc_stderr or captured
+
+    msg = f"claude_code run failed: {exc}"
+    if stderr and stderr not in str(exc):
+        msg = f"{msg}\nstderr:\n{stderr}"
+    return ClaudeCodeError(
+        msg,
+        exit_code=exit_code if isinstance(exit_code, int) else None,
+        stderr=stderr or None,
+        subtype=getattr(exc, "subtype", None),
+        errors=[str(e) for e in (getattr(exc, "errors", None) or [])],
+        api_error_status=getattr(exc, "api_error_status", None),
+    )
+
+
 def claude_code_factory(config: dict, ctx: CompileContext):
     cwd = _resolve_cwd(config)
     key_env = _inject_anthropic_key(ctx)
@@ -142,7 +243,18 @@ def claude_code_factory(config: dict, ctx: CompileContext):
         text_chunks: list[str] = []
         usage: dict[str, Any] = {}
         cost_usd: float | None = None
-        options = _sdk_options(config, cwd)
+        # Buffer the subprocess's stderr; this is where the real failure detail lands.
+        stderr_lines: list[str] = []
+        stderr_bytes = 0
+
+        def _stderr_sink(line: str) -> None:
+            nonlocal stderr_bytes
+            if stderr_bytes >= _STDERR_CAP_BYTES:
+                return
+            stderr_bytes += len(line)
+            stderr_lines.append(line)
+
+        options = _sdk_options(config, cwd, _stderr_sink)
         try:
             async for message in query(prompt=prompt, options=options):
                 kind = type(message).__name__
@@ -159,7 +271,11 @@ def claude_code_factory(config: dict, ctx: CompileContext):
                     cost_usd = getattr(message, "total_cost_usd", None)
                     usage = getattr(message, "usage", None) or {}
                     if getattr(message, "is_error", False):
-                        log.warning("claude_code run reported is_error=True: %s", result_text)
+                        # Don't swallow it: surface the exact failure (result prose + errors + subtype
+                        # + api status + captured stderr) so callers see why the run failed.
+                        raise _result_error(message, stderr_lines)
+        except Exception as e:  # noqa: BLE001 - normalize SDK/CLI failures to a detailed ClaudeCodeError
+            raise _wrap_sdk_error(e, stderr_lines) from e
         finally:
             for k, prev in restore.items():
                 if prev is None:

@@ -7,6 +7,13 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- **Claude Code node surfaces the exact failure** (fix): the `claude_code` node no longer swallows a
+  failed run behind the SDK's generic `Command failed with exit code 1 … Check stderr output for
+  details` placeholder. It now wires the SDK's `stderr` callback to buffer the real subprocess stderr,
+  raises a `ClaudeCodeError` on a terminal `is_error` result carrying the result prose + `errors` +
+  `subtype` + `api_error_status`, and normalizes SDK `ProcessError`/`ResultError` (exit code + stderr,
+  falling back to the captured buffer) — so callers see *why* a run failed.
+
 ### Deep agents on canvas, live observability & multi-environment tools
 - **Deep-agent sub-agents on the canvas** (new): a Deep Agent node gains a third **subagents** handle —
   drag it to any specialist agent node to fold that node in as a callable sub-agent (rendered as a
