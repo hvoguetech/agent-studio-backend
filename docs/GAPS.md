@@ -118,3 +118,64 @@ stayed `queued` (`no such table: runs` in the VM). Two layers:
 - `freestyle-svc/` (this service), `ros/execution/freestyle_control.py` (the `/run` client)
 - `forge/docs/standalone-runtime-split-spec.md` (Parts A–G; the authoritative design)
 - Atlas `freestyle-svc` (a different product's service; used as a proven scaffold template)
+
+---
+
+## G3 — `sandbox` backend hardening incomplete (NOT safe for untrusted tenants yet)
+
+- **Area:** execution / security — `ros/execution/sandbox.py`, `ros/runtime/sandbox.py`,
+  `ros/routers/runtime.py`, `freestyle-svc/`
+- **Status:** open · deferred (P1a shipped; P1b/P1c/P2 pending)
+- **Severity:** high — the backend is live (`ROS_EXECUTION_BACKEND=sandbox`) but only meets SOME of
+  the `design/secure-multitenant-execution.md` non-negotiables. **Gate untrusted multi-tenant callers
+  OFF** until the items below land; trusted / single-tenant use is fine now.
+
+### What P1a already delivers (the boundary that IS in place)
+The sandbox VM holds **no ambient authority**: dispatch injects ONLY `ROS_MASTER_URL` + a short-lived
+run-scoped token — no `ROS_DATABASE_URL` / `ROS_REDIS_URL` / `ROS_SECRET_KEY`. It pulls the manifest
+and streams/finalizes via master's tenant-scoped runtime callbacks (tenant taken from the token,
+server-side). Proven live end-to-end (a workflow ran `queued → done` with `executor.driver=sandbox`,
+no DB creds on the VM). Covers non-negotiables #2 (no ambient creds) + #3 (no direct data access).
+
+### Gaps still open (the hardening we are deferring)
+1. **Network egress is NOT locked down (non-negotiable #4).** Untrusted code in the sandbox can reach
+   any host — cloud metadata (169.254.169.254), RFC1918/internal services, arbitrary exfil targets.
+   Fix: network-layer **default-deny + allow-list** (LLM providers + the workflow's declared tool
+   endpoints), ideally via a forced **egress proxy**.
+   - **claude_code / LLM interplay:** default-deny must ALLOW `api.anthropic.com` / `api.openai.com`
+     (else every LLM node + the `claude` CLI breaks). Verify the `claude` CLI's full outbound
+     endpoints (model + any telemetry/update/auth) before finalizing the allow-list. Allow-listing an
+     LLM endpoint is an accepted RESIDUAL exfil risk (data can ride in prompts) — narrowed, not
+     removed, by the Phase-2 credential proxy.
+2. **VM is not a verified hard-isolation boundary + it is PERSISTENT (non-negotiable #1).** We run on
+   Freestyle persistent VMs (reused per workflow → run #1 can leave a foothold for run #2; Freestyle's
+   isolation internals are unverified). Fix: move the provider to **E2B (ephemeral Firecracker
+   microVMs)** — the provider is a documented swap behind `freestyle_control`/the dispatcher seam.
+   Needs an E2B account + verifying current E2B (and Freestyle) isolation docs before committing.
+3. **No hard resource / spend caps (non-negotiable #5).** No CPU/mem/wall-clock/output caps or
+   per-tenant concurrency on the sandbox VM; a runaway/fork-bomb is unbounded. Fix: microVM
+   CPU/mem/time caps + per-tenant concurrency + fair scheduling.
+4. **The run's own secrets ride into the sandbox in plaintext (Phase 2).** The manifest carries this
+   run's decrypted tool/provider creds (the graph needs them), so untrusted code WITHIN the run can
+   read its own run's secrets. Fix: the **egress credential proxy** — the sandbox gets *handles*, the
+   proxy attaches real creds only on allow-listed calls ("handles, not raw keys").
+5. **HITL/resume not supported (P1b).** The sandbox uses an in-process checkpointer; an interrupt
+   (`human_input`/`handoff`) finalizes as a clear error. Fix: a **callback-backed checkpointer**
+   (checkpoint read/write via a master endpoint) so state is durable without a DB handle.
+6. **`claude_code` credential in the sandbox.** The `claude` CLI currently gets no Anthropic auth on
+   the sandbox → the node fails. Independent of egress; must decide how the CLI receives a run-scoped
+   key (env inject now / credential proxy later).
+
+### Intended fix (phasing, from design/sandbox-backend-build-plan.md)
+- **P1b:** callback-backed checkpointer → HITL/resume.
+- **P1c:** network egress default-deny + allow-list (+ proxy) AND E2B ephemeral microVM provider.
+- **P2:** egress credential proxy (handles, not raw keys) + resource/concurrency caps + fair scheduling.
+
+### Until then
+Keep untrusted multi-tenant callers OFF the `sandbox` backend (same gate as G1). Trusted /
+single-tenant runs are fine.
+
+### References
+- `docs/design/sandbox-backend-build-plan.md` (P1a done; P1b/P1c/P2 plan)
+- `docs/design/secure-multitenant-execution.md` (the five non-negotiables; E2B decision; phasing)
+- `docs/design/freestyle-run-execution-findings.md` (why the trusted-VM path is interim-only)

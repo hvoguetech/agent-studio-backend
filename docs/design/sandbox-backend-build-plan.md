@@ -98,8 +98,11 @@ the parent spec replaces raw-secret injection with an **egress credential proxy*
    `ROS_MASTER_URL` + the run token — no DB/Redis/master-key). `_vm_dispatch_enabled()` + the
    redis-relay config guard extended to `sandbox`. Non-HITL only: an interrupt finalizes as `error`
    with a clear message (checkpoint proxying is P1b). Tests: `tests/test_sandbox_backend.py` (incl. the
-   cred-omission invariant + callback auth). **Not yet run end-to-end against a live sandbox VM** — the
-   snapshot's `ros` package must include these files (rebake needed) before a live smoke test.
+   cred-omission invariant + callback auth). **PROVEN LIVE (2026-08):** snapshot rebaked from `main`
+   (`sh-wv9loajwodiyq1gn5ime`), api+worker on `ROS_EXECUTION_BACKEND=sandbox`; a workflow ran
+   `queued → done` on a fresh VM with `executor.driver=sandbox` and no DB creds. Deferred hardening
+   (egress, E2B/ephemeral, resource caps, credential proxy, HITL) tracked as **GAPS G3** — sandbox is
+   safe for TRUSTED tenants only until those land.
 2. **P1b — checkpoint proxying (G-C) → HITL/resume** on the sandbox.
 3. **P1c — E2B provider + network egress default-deny (G-E/G-F)** + warm pool for cold-start.
 4. **P2+** — egress credential proxy (handles), fair scheduling, per-tenant concurrency/CPU/mem caps,
