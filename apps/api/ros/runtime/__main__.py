@@ -36,12 +36,38 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--resume", action="store_true", help="Resume an interrupted (HITL) run.")
     d.add_argument("--resume-value", default=None, help="HITL resume payload as JSON (with --resume).")
 
+    s = sub.add_parser(
+        "sandbox",
+        help="Drive a run in an ISOLATING sandbox: pull the manifest + stream/finalize via master "
+             "callbacks. NO shared DB/Redis/master-key on this process (WS10 Phase 1).",
+    )
+    s.add_argument("--run-id", required=True, help="Run id to drive.")
+    s.add_argument("--master-url", required=True, help="Master base URL for manifest + callbacks.")
+    s.add_argument("--token", required=True, help="Run-scoped runtime token (Authorization: Bearer).")
+    s.add_argument("--input", default="{}", help="Run input as JSON (default '{}').")
+    s.add_argument("--public", action="store_true", help="Embed surface: redact operator-only frames (H5).")
+
     args = parser.parse_args(argv)
     if args.cmd == "run":
         return asyncio.run(_run(args))
     if args.cmd == "drive":
         return asyncio.run(_drive(args))
+    if args.cmd == "sandbox":
+        return asyncio.run(_sandbox(args))
     return 2
+
+
+async def _sandbox(args) -> int:
+    import os
+
+    from ros.runtime.sandbox import drive_sandbox
+
+    rc_raw = os.environ.get("ROS_RUN_CONTEXT")
+    run_context = json.loads(rc_raw) if rc_raw else None
+    return await drive_sandbox(
+        master_url=args.master_url, token=args.token, run_id=args.run_id,
+        input=json.loads(args.input), public=args.public, run_context=run_context,
+    )
 
 
 async def _run(args) -> int:

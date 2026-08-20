@@ -345,7 +345,7 @@ def _vm_dispatch_enabled() -> bool:
     """True when the execution backend dispatches interactive runs to a per-run VM (the Freestyle
     control service is configured). Off by default, so single-node installs drive runs locally and
     the interactive path is unchanged."""
-    return (settings.execution_backend or "").lower() == "freestyle" and bool(settings.freestyle_service_url)
+    return (settings.execution_backend or "").lower() in ("freestyle", "sandbox") and bool(settings.freestyle_service_url)
 
 
 def _client_error(public: bool, run_id: str, detail: str) -> str:

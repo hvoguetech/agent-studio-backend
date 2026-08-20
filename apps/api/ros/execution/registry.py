@@ -38,6 +38,11 @@ def _resolve(name: str) -> ExecutionBackend:
 
         log.info("execution backend: freestyle")
         return FreestyleBackend()
+    if key == "sandbox":
+        from ros.execution.sandbox import SandboxBackend  # isolating data-plane (WS10 Phase 1)
+
+        log.info("execution backend: sandbox")
+        return SandboxBackend()
 
     # Plugin backends resolve from the entry-point group; ONLY the selected one is imported.
     import importlib.metadata as importlib_metadata

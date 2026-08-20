@@ -647,12 +647,12 @@ class Settings(BaseSettings):
                 "or ephemeral-disk replicas each generates a DIFFERENT key and cannot decrypt its "
                 "peers' secrets. Set ROS_SECRET_KEY from KMS/Vault for any multi-replica deploy."
             )
-        if (self.execution_backend or "").lower() == "freestyle" and self.freestyle_service_url and not self.redis_url:
+        if (self.execution_backend or "").lower() in ("freestyle", "sandbox") and self.freestyle_service_url and not self.redis_url:
             warns.append(
-                "ROS_EXECUTION_BACKEND=freestyle with a control service but no ROS_REDIS_URL - "
-                "VM-driven runs still execute and finalize, but master cannot RELAY their live "
-                "stream to clients (interactive SSE degrades to 'not streaming on this server'). "
-                "Set ROS_REDIS_URL to the shared Redis so the run relay works."
+                f"ROS_EXECUTION_BACKEND={self.execution_backend} with a control service but no "
+                "ROS_REDIS_URL - VM/sandbox-driven runs still execute and finalize, but master cannot "
+                "RELAY their live stream to clients (interactive SSE degrades to 'not streaming on "
+                "this server'). Set ROS_REDIS_URL to the shared Redis so the run relay works."
             )
         if self.redis_url and self.environment.lower() not in self._DEV_ENVIRONMENTS:
             url = self.redis_url

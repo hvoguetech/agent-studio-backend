@@ -79,6 +79,54 @@ async def dispatch_run(
         import json
         # Per-run context (end-user / request scope) as JSON env, avoiding shell-quoting in `command`.
         env["ROS_RUN_CONTEXT"] = json.dumps(run_context, default=str)
+    return await _post_run(
+        run_id=run_id, tenant_id=tenant_id, project_id=project_id,
+        command=command, env=env, sticky_key=sticky_key, client=client,
+    )
+
+
+async def dispatch_sandbox_run(
+    *, run_id: str, tenant_id: str, project_id: str | None,
+    master_url: str, run_token: str, run_input: dict | None = None,
+    sticky_key: str | None = None, public: bool = False, run_context: dict | None = None,
+    client: httpx.AsyncClient | None = None,
+) -> dict[str, Any]:
+    """Dispatch a run to an ISOLATING sandbox (WS10 Phase 1). Unlike `dispatch_run`, the sandbox
+    process gets ONLY `ROS_MASTER_URL` + the run-scoped token — NO shared DB/Redis/master-key. It
+    pulls the manifest and streams/finalizes via master's runtime callbacks. That omission IS the
+    isolation boundary (design/sandbox-backend-build-plan.md)."""
+    command = (
+        f"python -m ros.runtime sandbox --run-id {run_id} "
+        f"--master-url {shlex_quote(master_url)} --token {shlex_quote(run_token)}"
+    )
+    if run_input:
+        import json
+        command += f" --input {shlex_quote(json.dumps(run_input, default=str))}"
+    if public:
+        command += " --public"
+    # ONLY the master URL + token. Deliberately NO ROS_DATABASE_URL / ROS_REDIS_URL / ROS_SECRET_KEY.
+    env = {"ROS_MASTER_URL": master_url, "ROS_RUNTIME_TOKEN": run_token}
+    if run_context:
+        import json
+        env["ROS_RUN_CONTEXT"] = json.dumps(run_context, default=str)
+    return await _post_run(
+        run_id=run_id, tenant_id=tenant_id, project_id=project_id,
+        command=command, env=env, sticky_key=sticky_key, client=client,
+    )
+
+
+def shlex_quote(s: str) -> str:
+    import shlex
+
+    return shlex.quote(str(s))
+
+
+async def _post_run(
+    *, run_id: str, tenant_id: str, project_id: str | None,
+    command: str, env: dict[str, str], sticky_key: str | None,
+    client: httpx.AsyncClient | None,
+) -> dict[str, Any]:
+    """POST /run on freestyle-svc with a prebuilt command + env; returns the receipt."""
     body: dict[str, Any] = {
         "runId": run_id, "tenantId": tenant_id, "projectId": project_id,
         "command": command,
