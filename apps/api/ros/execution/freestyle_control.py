@@ -2,9 +2,10 @@
 
 Freestyle's SDK is Node, so — like the atlas builder — this calls a standalone `freestyle-svc`
 HTTP control service (ROS_FREESTYLE_SERVICE_URL + secret) rather than driving Freestyle's VM
-lifecycle from Python. `dispatch_run` asks the service to run `python -m ros.runtime run --run-id
-<id>` on a VM, with the master URL + a run token injected as env so the runtime can pull the run
-manifest and drive it against the shared durable state (trusted-VM model).
+lifecycle from Python. `dispatch_run` asks the service to run `python -m ros.runtime drive --run-id
+<id>` on a VM, injecting as env the master URL + a run token AND the shared runtime creds
+(ROS_DATABASE_URL / ROS_REDIS_URL / ROS_SECRET_KEY / checkpointer) so the VM drives the run
+against the SAME durable state the master uses (trusted-VM model).
 
 ⚠️ LIVE-VERIFY: the freestyle-svc `/run` endpoint shape must be confirmed against the deployed
 service on first use. Disabled (no-op) when ROS_FREESTYLE_SERVICE_URL is unset.
@@ -58,6 +59,22 @@ async def dispatch_run(
     if public:
         command += " --public"  # embed surface -> the VM's _drive redacts operator-only frames (H5)
     env = {"ROS_MASTER_URL": master_url, "ROS_RUNTIME_TOKEN": run_token}
+    # Trusted-VM model: the VM's `ros.runtime drive` reads the run + workflow + resolved secrets from
+    # the SHARED durable state and streams to the relay bus, so it MUST point at the same Postgres +
+    # Redis + master key + checkpointer the master uses. Without these the VM falls back to its baked
+    # local SQLite (empty -> "no such table: runs") and the run never leaves `queued`. Injected here
+    # (ROS_-prefixed so pydantic-settings picks them up) rather than baked into the snapshot, so creds
+    # stay per-deploy and never live in the image.
+    for var, val in (
+        ("ROS_DATABASE_URL", settings.database_url),
+        ("ROS_REDIS_URL", settings.redis_url),
+        ("ROS_SECRET_KEY", settings.secret_key),
+        ("ROS_CHECKPOINT_BACKEND", settings.checkpoint_backend),
+        ("ROS_CHECKPOINT_POSTGRES_URL", settings.checkpoint_postgres_url),
+        ("ROS_ENVIRONMENT", settings.environment),
+    ):
+        if val:
+            env[var] = str(val)
     if run_context:
         import json
         # Per-run context (end-user / request scope) as JSON env, avoiding shell-quoting in `command`.

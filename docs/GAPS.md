@@ -83,15 +83,36 @@ prints `ROS_SNAPSHOT_ID`. `/run` boots VMs from that snapshot when the id is set
 without it, a base Python VM boots that lacks the `ros` package). Running the bake needs a Freestyle
 plan with snapshots + a token that can clone the repo — that execution step is still TODO.
 
-### Still missing (follow-ups)
-- **Run the bake + wire it up:** execute `build:image` against a real Freestyle account, set
-  `ROS_SNAPSHOT_ID`, deploy the service, and point ROS at it (`ROS_FREESTYLE_SERVICE_URL/SECRET`,
-  `ROS_EXECUTION_BACKEND=freestyle`, `ROS_REDIS_URL`).
-- **Live-verify** the Freestyle SDK create/exec/snapshot shapes against the deployed platform (the
-  service code carries ⚠️ LIVE-VERIFY notes) — esp. detached `vm.exec` and snapshot readiness.
-- **Isolation:** even with the VM, untrusted-code isolation INSIDE a run is a non-goal of the split
-  spec (subagents are in-process/trusted) — G1 (hard multi-tenant isolation) still stands; that's the
-  E2B `sandbox` backend's job.
+### Done (2026-08, verified live on Railway `forge`/production)
+- **Bake + wire-up + live-verify:** `build:image` ran against a real Freestyle account
+  (`ROS_SNAPSHOT_ID` set); `freestyle-svc` deployed and healthy; api + worker pointed at it. The
+  Freestyle SDK create/exec/snapshot shapes (incl. detached `vm.exec` + snapshot readiness) are
+  confirmed. Control plane (auth, VM create/reuse/persistent lifecycle, teardown, snapshot boot) works
+  end-to-end.
+- **`ros-claude-backend` snapshot:** additionally fixed the `claude` CLI to install deterministically
+  (symlink the pip-bundled `claude_agent_sdk/_bundled/claude` onto PATH; npm's platform binary was a
+  flaky optionalDependency). And the clone token is now a separate `ROS_INSTALL_TOKEN` (not embedded
+  in the URL).
+
+### Blocker found by a live workflow run (see `design/freestyle-run-execution-findings.md`)
+Dispatch works (run gets `executor={"driver":"freestyle","vm_id":...}`, a VM boots), but the run
+stayed `queued` (`no such table: runs` in the VM). Two layers:
+1. `dispatch_run` never injected the shared DB/Redis/secret creds → the VM fell back to an empty local
+   SQLite. **Fixed** in `freestyle_control.py` (inject `ROS_DATABASE_URL`/`ROS_REDIS_URL`/
+   `ROS_SECRET_KEY`/checkpointer).
+2. …but the shared Postgres + Redis are on Railway **private** hosts a Freestyle VM cannot reach, and
+   making the trusted-VM model work would mean **exposing the DB + handing the VM full creds** — which
+   defeats the untrusted-isolation goal (RLS here is app-enforced, not a connection boundary).
+
+### Decision
+- Keep `freestyle` (trusted-VM, direct-DB) as an **interim / scale-out backend for trusted /
+  single-tenant projects only** — gate it like G1's `claude_code`.
+- The **untrusted-isolation** path is the E2B `sandbox` backend already spec'd in
+  `design/secure-multitenant-execution.md` (Phase 1) with its manifest/callback data plane — the
+  sandbox holds **no** DB/master-key and reaches state/secrets/tools only through a tenant-scoped
+  control-plane API. `driver.py` today implements only the direct-DB path; the manifest driver is the
+  real remaining work and belongs to that effort, not to Freestyle.
+- Do **not** expose Postgres/Redis publicly to force the trusted-VM path for untrusted tenants.
 
 ### References
 - `freestyle-svc/` (this service), `ros/execution/freestyle_control.py` (the `/run` client)
