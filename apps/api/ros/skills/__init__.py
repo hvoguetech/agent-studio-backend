@@ -5,6 +5,13 @@ spec expects; `SkillLibraryBackend` serves that map read-only to `SkillsMiddlewa
 docs/specs/artifacts-and-code-node.md §4.4.
 """
 
+from ros.skills.importer import (
+    SKILL_FILE,
+    SkillImportError,
+    dedupe_name,
+    parse_skill_tree,
+    split_frontmatter,
+)
 from ros.skills.library import (
     SKILLS_ROOT,
     InvalidSkillName,
@@ -17,10 +24,15 @@ from ros.skills.library import (
 
 __all__ = [
     "SKILLS_ROOT",
+    "SKILL_FILE",
     "InvalidSkillName",
+    "SkillImportError",
     "SkillLibraryBackend",
+    "dedupe_name",
     "materialize",
     "mount",
+    "parse_skill_tree",
     "skill_files",
+    "split_frontmatter",
     "validate_skill_name",
 ]
