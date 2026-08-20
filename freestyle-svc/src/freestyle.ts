@@ -151,19 +151,29 @@ function shq(s: string): string {
  * itself (with its prod extras) from the cloned repo, and the Claude Agent SDK. Steps are best-effort
  * (`|| true`) so one hiccup doesn't abort the whole bake; the verify step is what gates success.
  *
- * ROS_INSTALL_REPO_URL (an https URL, optionally with an embedded token for a private clone) points
- * at agent-studio-backend; the `ros` package lives in apps/api.
+ * ROS_INSTALL_REPO_URL (a plain https URL) points at agent-studio-backend; the `ros` package lives in
+ * apps/api. For a private clone, pass ROS_INSTALL_TOKEN separately — it is spliced into the URL VM-side
+ * as an x-access-token so the token never lives in the repo URL itself.
  */
 export const TOOLCHAIN_STEPS: string[] = [
   `export DEBIAN_FRONTEND=noninteractive`,
   `(apt-get update && apt-get install -y --no-install-recommends build-essential git curl ca-certificates gnupg jq ripgrep unzip postgresql-client sqlite3 python3-venv python3-pip nodejs npm) || true`,
-  // Claude Code CLI — makes the VM able to host the claude_agent tool/node.
-  `(npm install -g @anthropic-ai/claude-code) || true`,
   // Clone the ros backend repo and install the `ros` package (prod extras) so `python -m ros.runtime`
-  // resolves. ROS_INSTALL_REPO_URL may carry an x-access-token for a private clone; ROS_INSTALL_REF
-  // optionally pins a branch/tag (default: the repo default branch).
-  `(rm -rf /opt/ros-src && git clone --depth 1 \${ROS_INSTALL_REF:+--branch "$ROS_INSTALL_REF"} "$ROS_INSTALL_REPO_URL" /opt/ros-src) || echo "CLONE FAILED"`,
+  // resolves. ROS_INSTALL_REPO_URL is a plain https URL; ROS_INSTALL_TOKEN (when set) is spliced in
+  // VM-side as an x-access-token for a private clone; ROS_INSTALL_REF optionally pins a branch/tag
+  // (default: the repo default branch).
+  `ROS_CLONE_URL="$ROS_INSTALL_REPO_URL"; if [ -n "$ROS_INSTALL_TOKEN" ]; then ROS_CLONE_URL="$(printf '%s' "$ROS_INSTALL_REPO_URL" | sed -E "s#^https://#https://x-access-token:\${ROS_INSTALL_TOKEN}@#")"; fi`,
+  `(rm -rf /opt/ros-src && git clone --depth 1 \${ROS_INSTALL_REF:+--branch "$ROS_INSTALL_REF"} "$ROS_CLONE_URL" /opt/ros-src) || echo "CLONE FAILED"`,
   `(python3 -m pip install --break-system-packages -q -e "/opt/ros-src/apps/api[providers,vectors,knowledge,mcp,workers,postgres,storage,claude_code]" || python3 -m pip install -q -e "/opt/ros-src/apps/api[providers,vectors,knowledge,mcp,workers,postgres,storage,claude_code]") || echo "PIP INSTALL FAILED"`,
+  // Claude Code CLI on PATH — the claude_code node's Claude Agent SDK spawns the `claude` CLI as a
+  // subprocess from PATH. The SDK's pip wheel (claude-agent-sdk, pulled in by the claude_code extra
+  // above) ships the matching linux binary at .../claude_agent_sdk/_bundled/claude — deterministic,
+  // unlike npm's flaky platform-specific optionalDependency. Symlink that into /usr/local/bin (always
+  // on PATH); fall back to an npm-installed binary if the bundled one is ever absent.
+  `CLAUDE_BIN="$(find / -type f -path '*claude_agent_sdk*/_bundled/claude' 2>/dev/null | head -n1)"; ` +
+    `if [ -z "$CLAUDE_BIN" ]; then (npm install -g @anthropic-ai/claude-code) >/dev/null 2>&1 || true; ` +
+    `CLAUDE_BIN="$(command -v claude 2>/dev/null || find / -type f -path '*claude-code-linux-*/claude' 2>/dev/null | head -n1)"; fi; ` +
+    `if [ -n "$CLAUDE_BIN" ]; then chmod +x "$CLAUDE_BIN" 2>/dev/null || true; ln -sf "$CLAUDE_BIN" /usr/local/bin/claude; else echo "CLAUDE CLI NOT FOUND"; fi`,
   // Bake the shared JSON schemas at the path config.py expects (/app/packages/schemas) so a manifest
   // run can validate node/tool config offline.
   `(mkdir -p /app && cp -r /opt/ros-src/packages /app/packages) || true`,

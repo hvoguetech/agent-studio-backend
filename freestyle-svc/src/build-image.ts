@@ -8,7 +8,8 @@
  *
  * Run with the service env injected + the repo to install:
  *   npm run build
- *   ROS_INSTALL_REPO_URL="https://x-access-token:<gh_token>@github.com/hvoguetech/agent-studio-backend.git" \
+ *   ROS_INSTALL_REPO_URL="https://github.com/hvoguetech/agent-studio-backend.git" \
+ *   ROS_INSTALL_TOKEN="<gh_token>" \
  *   ROS_INSTALL_REF="main" \
  *   FREESTYLE_API_KEY=... FREESTYLE_SERVICE_SECRET=... node dist/build-image.js
  */
@@ -23,7 +24,7 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 async function main() {
   const repoUrl = process.env.ROS_INSTALL_REPO_URL;
   if (!repoUrl) {
-    console.error("BUILD-IMAGE: ROS_INSTALL_REPO_URL is required (https clone URL for agent-studio-backend, may embed an x-access-token).");
+    console.error("BUILD-IMAGE: ROS_INSTALL_REPO_URL is required (plain https clone URL for agent-studio-backend; pass a private-clone token separately as ROS_INSTALL_TOKEN).");
     process.exit(2);
   }
   const fs = new Freestyle({ apiKey: config.freestyleApiKey });
@@ -43,8 +44,10 @@ async function main() {
   try {
     // Install DETACHED (a multi-minute blocking exec drops Freestyle's exec HTTP connection): write
     // the build script with the repo env, launch it in the background, then poll a ready marker.
+    const token = process.env.ROS_INSTALL_TOKEN || "";
     const env =
       `export ROS_INSTALL_REPO_URL=${shq(repoUrl)}\n` +
+      (token ? `export ROS_INSTALL_TOKEN=${shq(token)}\n` : "") +
       (process.env.ROS_INSTALL_REF ? `export ROS_INSTALL_REF=${shq(process.env.ROS_INSTALL_REF)}\n` : "");
     const script =
       `#!/usr/bin/env bash\n` +

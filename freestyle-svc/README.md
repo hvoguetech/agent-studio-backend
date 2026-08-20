@@ -50,7 +50,8 @@ it can run `python -m ros.runtime` and `claude`, and prints the snapshot id.
 
 ```bash
 npm run build
-ROS_INSTALL_REPO_URL="https://x-access-token:<gh_token>@github.com/hvoguetech/agent-studio-backend.git" \
+ROS_INSTALL_REPO_URL="https://github.com/hvoguetech/agent-studio-backend.git" \
+ROS_INSTALL_TOKEN="$(gh auth token)" \
 ROS_INSTALL_REF="main" \
 FREESTYLE_API_KEY=... FREESTYLE_SERVICE_SECRET=... \
 npm run build:image
