@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -90,7 +92,7 @@ async def update_client(project_id: str, client_id: str, body: McpClientPatch, s
 async def list_remote_tools(project_id: str, client_id: str, session: AsyncSession = Depends(get_session),
                             tenant_id: str = Depends(current_tenant_id)):
     """Connect to the server and list the tools it exposes - drives the 'pick which to add' UI."""
-    from ros.tools.mcp import McpUnavailable, discover_tools
+    from ros.tools.mcp import McpUnavailable, discover_tools, humanize_mcp_error
 
     row = (await session.execute(
         select(McpClient).where(McpClient.tenant_id == tenant_id, McpClient.id == client_id)
@@ -101,8 +103,12 @@ async def list_remote_tools(project_id: str, client_id: str, session: AsyncSessi
         tools = await discover_tools(row, tenant_id, project_id)
     except McpUnavailable as e:
         return {"ok": False, "error": str(e)}
-    except Exception as e:  # noqa: BLE001 - surface connect/auth errors to the UI, don't 500
-        return {"ok": False, "error": f"Could not connect: {e}"}
+    except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
+        raise  # never swallow control-flow / cancellation
+    except BaseException as e:  # noqa: BLE001 - surface connect/auth errors to the UI, don't 500
+        # Unwrap the anyio TaskGroup/ExceptionGroup so the UI shows the real cause (e.g. 401
+        # Unauthorized) instead of "unhandled errors in a TaskGroup (1 sub-exception)".
+        return {"ok": False, "error": f"Could not connect: {humanize_mcp_error(e)}"}
     return {"ok": True, "tools": tools}
 
 

@@ -39,6 +39,45 @@ def invalidate_client(client_id: str) -> None:
     _CLIENT_CACHE.pop(client_id, None)
 
 
+def humanize_mcp_error(exc: BaseException) -> str:
+    """Turn an MCP connect failure into a readable one-line message.
+
+    langchain-mcp-adapters runs the connection in an anyio TaskGroup, so a real failure (e.g. a
+    401 from the server) arrives wrapped in an ExceptionGroup whose own str() is the useless
+    'unhandled errors in a TaskGroup (1 sub-exception)'. Unwrap to the innermost concrete cause and
+    render it — surfacing an HTTP status when present (httpx.HTTPStatusError) so the UI can say
+    '401 Unauthorized' instead of 'TaskGroup'."""
+    seen: set[int] = set()
+
+    def _leaf(e: BaseException) -> BaseException:
+        # Descend ExceptionGroups (take the first sub) and __cause__/__context__ chains to the leaf.
+        while True:
+            if id(e) in seen:
+                return e
+            seen.add(id(e))
+            subs = getattr(e, "exceptions", None)  # ExceptionGroup / BaseExceptionGroup
+            if subs:
+                e = subs[0]
+                continue
+            nxt = e.__cause__ or e.__context__
+            if nxt is not None and id(nxt) not in seen:
+                e = nxt
+                continue
+            return e
+
+    leaf = _leaf(exc)
+    # httpx.HTTPStatusError carries a response with a status code — the most useful thing to show.
+    resp = getattr(leaf, "response", None)
+    status_code = getattr(resp, "status_code", None)
+    if isinstance(status_code, int):
+        reason = getattr(resp, "reason_phrase", "") or ""
+        hint = " — the server requires authentication (add a bearer token)" if status_code in (401, 403) else ""
+        return f"{status_code} {reason}".strip() + hint
+    msg = str(leaf).strip() or type(leaf).__name__
+    # Keep it to a single line; collapse any multi-line httpx message.
+    return msg.splitlines()[0]
+
+
 async def close_all() -> None:
     """Best-effort close of every cached MCP client (transports/subprocesses) on shutdown."""
     for _, client in list(_CLIENT_CACHE.values()):

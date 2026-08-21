@@ -61,3 +61,48 @@ async def test_load_mcp_tool_missing_client():
 
 async def _noop(tools):
     return object(), tools
+
+
+# --- humanize_mcp_error: unwrap TaskGroup/ExceptionGroup to the real cause -----------------------
+
+class _FakeResp:
+    def __init__(self, code, reason=""):
+        self.status_code = code
+        self.reason_phrase = reason
+
+
+class _FakeHTTPStatusError(Exception):
+    def __init__(self, code, reason):
+        self.response = _FakeResp(code, reason)
+        super().__init__(f"Client error '{code} {reason}' for url 'https://x'\nMore info: ...")
+
+
+def test_humanize_unwraps_exceptiongroup_to_http_status():
+    from ros.tools.mcp import humanize_mcp_error
+
+    inner = _FakeHTTPStatusError(401, "Unauthorized")
+    group = ExceptionGroup("unhandled errors in a TaskGroup", [inner])
+    msg = humanize_mcp_error(group)
+    assert "401 Unauthorized" in msg
+    assert "requires authentication" in msg  # 401/403 hint
+    assert "TaskGroup" not in msg
+
+
+def test_humanize_unwraps_nested_cause():
+    from ros.tools.mcp import humanize_mcp_error
+
+    try:
+        try:
+            raise ConnectionRefusedError("connection refused")
+        except ConnectionRefusedError as e:
+            raise RuntimeError("wrapper") from e
+    except RuntimeError as top:
+        msg = humanize_mcp_error(top)
+    assert "connection refused" in msg
+
+
+def test_humanize_plain_error_single_line():
+    from ros.tools.mcp import humanize_mcp_error
+
+    msg = humanize_mcp_error(ValueError("boom\nsecond line"))
+    assert msg == "boom"  # collapsed to first line, no wrapper
