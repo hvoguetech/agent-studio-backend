@@ -72,6 +72,8 @@ async def test_dispatch_run_posts_the_runner_command(monkeypatch):
     # Trusted-VM: the VM drives the run against the shared DB (not the manifest ainvoke path).
     assert "python -m ros.runtime drive --run-id r --tenant t --project p" in captured["body"]["command"]
     assert captured["body"]["env"]["ROS_MASTER_URL"] == "http://master"
+    # Root VM: lets the claude_code CLI skip permission prompts (--dangerously-skip-permissions).
+    assert captured["body"]["env"]["IS_SANDBOX"] == "1"
     assert "stickyKey" not in captured["body"] and "warm" not in captured["body"]  # cold by default
 
 

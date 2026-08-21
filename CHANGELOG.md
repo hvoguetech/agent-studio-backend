@@ -7,6 +7,14 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- **Claude Code runs under a root sandbox VM** (fix): on the per-run Freestyle/E2B VM the runtime
+  executes as root, where the `claude` CLI rejects `--dangerously-skip-permissions` (used by the
+  autonomous `acceptEdits`/`bypassPermissions` modes) with *"cannot be used with root/sudo
+  privileges"*. The freestyle dispatch now injects the CLI's documented sandbox escape hatch
+  `IS_SANDBOX=1` into the VM run env (both the trusted-VM `dispatch_run` and the isolating
+  `dispatch_sandbox_run` paths) — a non-secret execution-mode flag that lifts the root guard without
+  weakening the sandbox's shared-cred omission. Control-plane only: ships with an api/worker deploy,
+  no image re-bake and no VM teardown (it is exported into the VM process on every run).
 - **Claude Code node surfaces the exact failure** (fix): the `claude_code` node no longer swallows a
   failed run behind the SDK's generic `Command failed with exit code 1 … Check stderr output for
   details` placeholder. It now wires the SDK's `stderr` callback to buffer the real subprocess stderr,

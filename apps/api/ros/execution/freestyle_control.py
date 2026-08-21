@@ -58,7 +58,11 @@ async def dispatch_run(
         command += f" --project {project_id}"
     if public:
         command += " --public"  # embed surface -> the VM's _drive redacts operator-only frames (H5)
-    env = {"ROS_MASTER_URL": master_url, "ROS_RUNTIME_TOKEN": run_token}
+    # The VM runs as root; the claude_code node's `claude` CLI rejects --dangerously-skip-permissions
+    # under root ("cannot be used with root/sudo privileges") unless IS_SANDBOX is set. Each VM is a
+    # dedicated single-run sandbox, so we set the CLI's documented escape hatch here (control plane —
+    # no image re-bake needed; it's exported into the VM process env on every /run).
+    env = {"ROS_MASTER_URL": master_url, "ROS_RUNTIME_TOKEN": run_token, "IS_SANDBOX": "1"}
     # Trusted-VM model: the VM's `ros.runtime drive` reads the run + workflow + resolved secrets from
     # the SHARED durable state and streams to the relay bus, so it MUST point at the same Postgres +
     # Redis + master key + checkpointer the master uses. Without these the VM falls back to its baked
@@ -105,7 +109,9 @@ async def dispatch_sandbox_run(
     if public:
         command += " --public"
     # ONLY the master URL + token. Deliberately NO ROS_DATABASE_URL / ROS_REDIS_URL / ROS_SECRET_KEY.
-    env = {"ROS_MASTER_URL": master_url, "ROS_RUNTIME_TOKEN": run_token}
+    # IS_SANDBOX is a non-secret execution-mode flag (lets the root-run `claude` CLI skip permission
+    # prompts) — it does not weaken the isolation boundary, which is the omission of shared creds above.
+    env = {"ROS_MASTER_URL": master_url, "ROS_RUNTIME_TOKEN": run_token, "IS_SANDBOX": "1"}
     if run_context:
         import json
         env["ROS_RUN_CONTEXT"] = json.dumps(run_context, default=str)

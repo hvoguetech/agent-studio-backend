@@ -45,7 +45,9 @@ async def test_sandbox_dispatch_omits_all_shared_creds():
     await client.aclose()
     assert out["vm_id"] == "sbx_1"
     env = captured["body"]["env"]
-    assert env == {"ROS_MASTER_URL": "http://master", "ROS_RUNTIME_TOKEN": "tok"}
+    # Master URL + token + the non-secret IS_SANDBOX execution-mode flag — and NOTHING else.
+    assert env == {"ROS_MASTER_URL": "http://master", "ROS_RUNTIME_TOKEN": "tok", "IS_SANDBOX": "1"}
+    # THE isolation invariant: no shared creds leak into the sandbox env.
     for forbidden in ("ROS_DATABASE_URL", "ROS_REDIS_URL", "ROS_SECRET_KEY", "ROS_CHECKPOINT_POSTGRES_URL"):
         assert forbidden not in env
     cmd = captured["body"]["command"]
