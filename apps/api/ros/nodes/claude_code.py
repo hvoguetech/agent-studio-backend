@@ -26,6 +26,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
 from ros.engine.context import CompileContext
 from ros.engine.registry import NodeSpec, Port, register
+from ros.util.workspace import resolve_workspace
 
 log = logging.getLogger("ros.claude_code")
 

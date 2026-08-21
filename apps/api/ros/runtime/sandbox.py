@@ -76,7 +76,7 @@ async def drive_sandbox(
         end_user = None  # end-user identity travels inside runtime_env / run_context, not needed here
         ctx = build_compile_context_from_manifest(
             manifest, checkpointer=InMemorySaver(),
-            end_user=end_user, run_context=run_context,
+            end_user=end_user, run_context=run_context, run_id=run_id,
         )
         from ros.engine.compiler import compile_workflow
 

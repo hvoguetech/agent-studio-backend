@@ -319,13 +319,13 @@ def _build_claude_agent_tool(cfg: dict, ctx):
     anthropic_key = creds.get("anthropic")
 
     def _resolve_cwd(workspace: str) -> str:
-        ws = (workspace or default_workspace or os.environ.get("ROS_CLAUDE_CODE_WORKSPACE", "")).strip()
-        if not ws:
-            import tempfile
-            ws = tempfile.mkdtemp(prefix="ros-claude-agent-")
-        ws = os.path.abspath(ws)
-        os.makedirs(ws, exist_ok=True)
-        return ws
+        """Per-call workspace arg > the tool's configured default > ros.util.workspace's resolution
+        (ROS_CLAUDE_CODE_WORKSPACE > `<workspace_root>/<run_id>` > temp dir). Sharing the run's
+        directory with the claude_code node is deliberate: a workflow that hands work between the
+        two sees one set of files."""
+        from ros.util.workspace import resolve_workspace
+
+        return resolve_workspace(workspace or default_workspace, ctx, prefix="ros-claude-agent-")
 
     def _emit(event: str, payload: dict) -> None:
         """Push a live per-turn activity frame to the run stream (no-op with no active writer)."""

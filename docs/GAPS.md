@@ -30,9 +30,14 @@ setups now, without blocking on that data plane.
 - The governed Anthropic key is injected into the subprocess env only for the run's duration and
   removed after (no leak into the long-lived process env).
 - `permission_mode` / `allowed_tools` / `disallowed_tools` bound what the agent may do.
-- The node is transport-only: it reads `ROS_CLAUDE_CODE_WORKSPACE` for its `cwd`, so it already runs
+- The node is transport-only: `ros/util/workspace.py` resolves its `cwd` (node config >
+  `ROS_CLAUDE_CODE_WORKSPACE` > `<ROS_WORKSPACE_ROOT>/<run_id>` > temp dir), so it already runs
   inside the per-run VM workspace when executed on the Freestyle/E2B execution backend — no node change
   needed once that path lands.
+- Each run gets its OWN directory (`ctx.run_id`, carried on the CompileContext rather than
+  `os.environ` so concurrent runs on shared master can't clobber each other's cwd). That bounds
+  blast radius to one run's files and makes the path addressable for cleanup — it is still the same
+  host FS with real edit/shell tools, so it is containment, not isolation.
 
 These are **defense-in-depth, not an isolation boundary.** The `cwd` is still on the host FS, the
 network is not layer-enforced, and shell/edit tools are real.

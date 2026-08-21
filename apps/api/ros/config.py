@@ -145,6 +145,13 @@ class Settings(BaseSettings):
     # fine for local dev.
     fastembed_cache_dir: str | None = None
 
+    # --- Per-run agent workspace (ros/util/workspace.py). The directory a claude_code node /
+    # claude_agent tool gets as its cwd when neither the node config nor ROS_CLAUDE_CODE_WORKSPACE
+    # pins one: each run works in `<workspace_root>/<run_id>`. Defaults into the data volume (shared
+    # by api + worker in docker-compose, persisted across rebuilds) so the files an agent writes
+    # survive the run instead of vanishing with a /tmp dir. NOT auto-pruned - see ops docs. ---
+    workspace_root: str = Field(default_factory=lambda: (_DEFAULT_DATA_DIR / "workspaces").as_posix())
+
     # --- Artifact storage (WS7 - docs/design/artifact-storage.md). Durable, downloadable storage
     # for agent/tool-produced files, kept OUT of run state. "local" (default) writes to the data
     # volume (single-node/dev); "s3" uses an S3-compatible bucket (Railway bucket / R2 / MinIO / AWS

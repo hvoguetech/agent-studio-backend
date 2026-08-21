@@ -95,7 +95,7 @@ async def _run(args) -> int:
     apply_runtime_env(manifest.get("runtime_env"))
 
     thread_id = args.thread_id if args.thread_id != "run" else (args.run_id or "run")
-    result = await run(manifest, json.loads(args.input), thread_id=thread_id)
+    result = await run(manifest, json.loads(args.input), thread_id=thread_id, run_id=args.run_id)
     print(json.dumps(result, default=str))
     return 0
 

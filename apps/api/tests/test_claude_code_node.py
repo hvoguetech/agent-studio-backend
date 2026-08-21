@@ -110,6 +110,52 @@ async def test_governed_key_scoped_to_subprocess_env(monkeypatch, tmp_path):
     assert "ANTHROPIC_API_KEY" not in os.environ
 
 
+async def test_workspace_defaults_to_the_run_directory(monkeypatch, tmp_path):
+    """No `workspace` config and no env pin -> `<ROS_WORKSPACE_ROOT>/<run_id>`, so every visit to
+    the node within one run (and a resume) shares one directory instead of a fresh temp dir."""
+    monkeypatch.delenv("ROS_CLAUDE_CODE_WORKSPACE", raising=False)
+    monkeypatch.setattr("ros.config.settings.workspace_root", str(tmp_path / "workspaces"))
+    capture: dict = {}
+    _install_fake_sdk(monkeypatch, capture=capture)
+    ctx = CompileContext(tenant_id="t", project_id="p", run_id="run-abc123")
+
+    node = _factory()({}, ctx)
+    await node({"messages": [HumanMessage("hi")]})
+    expected = str(tmp_path / "workspaces" / "run-abc123")
+
+    assert capture["options"]["cwd"] == expected
+    assert os.path.isdir(expected)  # created up front, so the agent's first tool call lands in it
+    # A second compile of the SAME run resolves to the SAME directory (resume / loop iteration).
+    assert _factory()({}, ctx) is not None
+    assert capture["options"]["cwd"] == expected
+
+
+async def test_workspace_precedence_and_traversal(monkeypatch, tmp_path):
+    """config.workspace > ROS_CLAUDE_CODE_WORKSPACE > per-run dir; a run id that is not a single
+    safe path segment must not escape the root."""
+    from ros.util.workspace import resolve_workspace
+
+    monkeypatch.setattr("ros.config.settings.workspace_root", str(tmp_path / "workspaces"))
+    ctx = CompileContext(tenant_id="t", project_id="p", run_id="run-1")
+
+    monkeypatch.setenv("ROS_CLAUDE_CODE_WORKSPACE", str(tmp_path / "pinned"))
+    assert resolve_workspace(str(tmp_path / "explicit"), ctx, prefix="p-") == str(tmp_path / "explicit")
+    assert resolve_workspace(None, ctx, prefix="p-") == str(tmp_path / "pinned")
+
+    monkeypatch.delenv("ROS_CLAUDE_CODE_WORKSPACE")
+    assert resolve_workspace(None, ctx, prefix="p-") == str(tmp_path / "workspaces" / "run-1")
+
+    # Path traversal in the run id falls back to a temp dir rather than climbing out of the root.
+    evil = CompileContext(tenant_id="t", project_id="p", run_id="../../etc")
+    got = resolve_workspace(None, evil, prefix="ros-claude-code-")
+    assert "ros-claude-code-" in got
+    assert str(tmp_path / "workspaces") not in got
+
+    # No run id at all (preview/validation compile) -> temp dir, the pre-existing behavior.
+    bare = CompileContext(tenant_id="t", project_id="p")
+    assert "ros-claude-code-" in resolve_workspace(None, bare, prefix="ros-claude-code-")
+
+
 async def test_empty_input_short_circuits(monkeypatch, tmp_path):
     _install_fake_sdk(monkeypatch)
     ctx = CompileContext(tenant_id="t", project_id="p")

@@ -44,6 +44,7 @@ def _tool_cfg(t: Tool) -> dict:
 async def build_compile_context(
     session, *, tenant_id: str, project_id: str, checkpointer=None, store=None,
     end_user: dict | None = None, run_context: dict | None = None, agent_id: str | None = None,
+    run_id: str | None = None,
     workflow_id: str | None = None,
 ) -> CompileContext:
     # Scope the project load by tenant too (audit H4): callers pass the CALLER's tenant_id, so a
@@ -115,6 +116,9 @@ async def build_compile_context(
     # The run's governed subject (Run.agent_id == ApiKey.id): owner of runtime_env's resources and the
     # principal a mid-run self-provisioning tool gates against. None for operator/console/JWT runs.
     ctx.agent_id = agent_id
+    # The Run.id, so a file/shell agent node gets a stable per-run workspace instead of a throwaway
+    # temp dir (ros.util.workspace). None on a preview/validation compile with no run behind it.
+    ctx.run_id = run_id
 
     # Per-end-user isolation (2b): a run created by a governed subject (Run.agent_id) gets the
     # RESOLVED env of the resources that subject provisioned — agent-shared UNION this end_user's
@@ -253,7 +257,7 @@ async def build_compile_context(
 
 def build_compile_context_from_manifest(
     manifest: dict, *, checkpointer=None, store=None,
-    end_user: dict | None = None, run_context: dict | None = None,
+    end_user: dict | None = None, run_context: dict | None = None, run_id: str | None = None,
 ) -> CompileContext:
     """Rebuild a CompileContext from a RunManifest (services/runtime_manifest.py) instead of the DB —
     the runtime-side twin of build_compile_context for the standalone ros runtime. Materializes the
@@ -286,6 +290,9 @@ def build_compile_context_from_manifest(
     # The run's governed subject, carried in the manifest (parallel to the DB path) so a self-
     # provisioning tool gates identically on an isolated VM. Empty for a manifest built without one.
     ctx.agent_id = manifest.get("agent_id")
+    # Per-run workspace (parallel to the DB path). The caller passes the run id it was dispatched
+    # with; the manifest's own run_id is the fallback so either wiring works.
+    ctx.run_id = run_id or manifest.get("run_id")
     # Per-end-user isolation (2b): the agent's resolved provisioned resource env, precomputed by
     # RuntimeManifestService.build (scoped by agent + the run's end_user) so the DB-less runtime
     # gets the same isolation as the DB path. Empty for a manifest built without a governed subject.

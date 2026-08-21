@@ -100,6 +100,13 @@ class CompileContext:
     # its resources (ros.runtime.env.apply_runtime_env); that export never runs on master.
     runtime_env: dict[str, str] = field(default_factory=dict)
 
+    # The Run.id this compile belongs to, when there is one. Read by ros.util.workspace to give a
+    # file/shell agent (claude_code node, claude_agent tool) a stable per-run cwd. It rides the
+    # context rather than os.environ because shared master compiles many runs concurrently in one
+    # process - a global env write would race (same reasoning as runtime_env above). None for
+    # compiles outside a run (validation/preview, tests), which fall back to a temp workspace.
+    run_id: str | None = None
+
     # Project-level default middleware, prepended to every agent stack (Doc 2 §8).
     project_default_mw: list[dict] = field(default_factory=list)
 

@@ -24,13 +24,14 @@ log = logging.getLogger("ros.runtime.runner")
 
 
 def build_graph(manifest: dict, *, checkpointer: Any = None, end_user: dict | None = None,
-                run_context: dict | None = None):
+                run_context: dict | None = None, run_id: str | None = None):
     """Manifest → compiled LangGraph graph (context rebuilt without the master DB)."""
     if checkpointer is None:
         from langgraph.checkpoint.memory import InMemorySaver
         checkpointer = InMemorySaver()
     ctx = build_compile_context_from_manifest(
         manifest, checkpointer=checkpointer, end_user=end_user, run_context=run_context,
+        run_id=run_id,
     )
     return compile_workflow(manifest["executable"], ctx)
 
@@ -59,14 +60,15 @@ async def _durable_checkpointer():
 
 
 async def run(manifest: dict, input: dict, *, thread_id: str = "run", checkpointer: Any = None,
-              end_user: dict | None = None, run_context: dict | None = None) -> dict:
+              end_user: dict | None = None, run_context: dict | None = None,
+              run_id: str | None = None) -> dict:
     """Compile the manifest's workflow and drive it to completion (or an interrupt), returning the
     final state. With no explicit checkpointer, uses the durable (shared-Postgres in prod) saver so an
     interrupted (HITL) run resumes on the same thread_id and master sees the state."""
     config = {"configurable": {"thread_id": thread_id}}
     if checkpointer is not None:
-        graph = build_graph(manifest, checkpointer=checkpointer, end_user=end_user, run_context=run_context)
+        graph = build_graph(manifest, checkpointer=checkpointer, end_user=end_user, run_context=run_context, run_id=run_id)
         return await graph.ainvoke(input, config)
     async with _durable_checkpointer() as cp:
-        graph = build_graph(manifest, checkpointer=cp, end_user=end_user, run_context=run_context)
+        graph = build_graph(manifest, checkpointer=cp, end_user=end_user, run_context=run_context, run_id=run_id)
         return await graph.ainvoke(input, config)

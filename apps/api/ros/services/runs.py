@@ -859,7 +859,7 @@ class RunService:
                     await session.commit()
 
                     ctx = await build_compile_context(
-                        session, tenant_id=tenant_id, project_id=run.project_id, agent_id=run.agent_id,
+                        session, tenant_id=tenant_id, project_id=run.project_id, agent_id=run.agent_id, run_id=run.id,
                         checkpointer=self.checkpointer, store=self.store,
                         end_user=(thread.meta or {}).get("end_user"),
                         run_context=run_context, workflow_id=wf.id,
@@ -1050,7 +1050,7 @@ class RunService:
                     run.started_at = datetime.utcnow()
                     await session.commit()
                     ctx = await build_compile_context(
-                        session, tenant_id=tenant_id, project_id=run.project_id, agent_id=run.agent_id,
+                        session, tenant_id=tenant_id, project_id=run.project_id, agent_id=run.agent_id, run_id=run.id,
                         checkpointer=checkpointer, store=self.store,
                         end_user=(thread.meta or {}).get("end_user"),
                         run_context=run_context, workflow_id=wf.id,
@@ -1161,7 +1161,7 @@ class RunService:
                     run.status = "running"
                     await session.commit()
                     ctx = await build_compile_context(
-                        session, tenant_id=tenant_id, project_id=run.project_id, agent_id=run.agent_id,
+                        session, tenant_id=tenant_id, project_id=run.project_id, agent_id=run.agent_id, run_id=run.id,
                         checkpointer=self.checkpointer, store=self.store,
                         end_user=(thread.meta or {}).get("end_user"),
                         run_context=run_context, workflow_id=wf.id,
@@ -1244,7 +1244,7 @@ class RunService:
                     _stamp_lease(run)
                     await session.commit()
                     ctx = await build_compile_context(
-                        session, tenant_id=tenant_id, project_id=run.project_id, agent_id=run.agent_id,
+                        session, tenant_id=tenant_id, project_id=run.project_id, agent_id=run.agent_id, run_id=run.id,
                         checkpointer=checkpointer, store=self.store,
                         end_user=(thread.meta or {}).get("end_user"), run_context=run_context,
                         workflow_id=wf.id,
@@ -1304,7 +1304,7 @@ class RunService:
                 "recursion_limit": _recursion_limit(wf.executable),
             }
             ctx = await build_compile_context(
-                session, tenant_id=tenant_id, project_id=run.project_id, agent_id=run.agent_id,
+                session, tenant_id=tenant_id, project_id=run.project_id, agent_id=run.agent_id, run_id=run.id,
                 checkpointer=checkpointer, store=self.store,
                 end_user=(thread.meta or {}).get("end_user"), run_context=run_context,
                 workflow_id=wf.id,
@@ -1694,7 +1694,7 @@ class RunService:
                 if wf is None or thread is None:
                     return False
                 ctx = await build_compile_context(
-                    session, tenant_id=tenant_id, project_id=run.project_id, agent_id=run.agent_id,
+                    session, tenant_id=tenant_id, project_id=run.project_id, agent_id=run.agent_id, run_id=run.id,
                     checkpointer=self.checkpointer, store=self.store,
                     end_user=(thread.meta or {}).get("end_user"), run_context=None,
                     workflow_id=wf.id,
