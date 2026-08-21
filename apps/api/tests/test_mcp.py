@@ -106,3 +106,31 @@ def test_humanize_plain_error_single_line():
 
     msg = humanize_mcp_error(ValueError("boom\nsecond line"))
     assert msg == "boom"  # collapsed to first line, no wrapper
+
+
+async def test_get_tools_wraps_connect_failure_as_mcp_unavailable():
+    # The centralized _get_tools turns any opaque get_tools() failure into a humanized McpUnavailable,
+    # so every caller (discovery, agent attach, runtime) gets the real cause — not a TaskGroup string.
+    from ros.tools.mcp import McpUnavailable, _get_tools
+
+    class _Client:
+        async def get_tools(self):
+            raise ExceptionGroup("unhandled errors in a TaskGroup", [_FakeHTTPStatusError(401, "Unauthorized")])
+
+    with pytest.raises(McpUnavailable) as ei:
+        await _get_tools(_Client(), "sg")
+    assert "401 Unauthorized" in str(ei.value)
+    assert "TaskGroup" not in str(ei.value)
+
+
+async def test_get_tools_does_not_swallow_cancellation():
+    import asyncio as _a
+
+    from ros.tools.mcp import _get_tools
+
+    class _Client:
+        async def get_tools(self):
+            raise _a.CancelledError()
+
+    with pytest.raises(_a.CancelledError):
+        await _get_tools(_Client(), "sg")

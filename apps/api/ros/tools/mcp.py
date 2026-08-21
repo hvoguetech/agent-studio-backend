@@ -12,6 +12,7 @@ assembler (not the sync `materialize_tool` path).
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import time
@@ -187,8 +188,23 @@ async def _client_and_tools(client_row: McpClient, tenant_id: str, project_id: s
         _CLIENT_CACHE[client_row.id] = (now, client)
     else:
         client = entry[1]
-    tools = await client.get_tools()
+    tools = await _get_tools(client, client_row.name)
     return client, tools
+
+
+async def _get_tools(client, server_name: str):
+    """`client.get_tools()` but any anyio TaskGroup/ExceptionGroup connect failure (401, DNS, TLS,
+    refused, …) is re-raised as McpUnavailable with the real cause unwrapped — so every caller
+    (discovery UI, agent/deep_agent tool attach, claude_code) gets one clear message instead of the
+    opaque 'unhandled errors in a TaskGroup'. Cancellation is never swallowed."""
+    try:
+        return await client.get_tools()
+    except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
+        raise
+    except McpUnavailable:
+        raise
+    except BaseException as e:  # noqa: BLE001 - normalize opaque MCP connect failures
+        raise McpUnavailable(f"MCP server {server_name!r}: {humanize_mcp_error(e)}") from e
 
 
 async def discover_tools(client_row: McpClient, tenant_id: str, project_id: str) -> list[dict]:
@@ -202,7 +218,7 @@ async def discover_tools(client_row: McpClient, tenant_id: str, project_id: str)
     MultiServerMCPClient = _require_adapters()
     conn = await _connection_for(client_row, tenant_id, project_id)
     client = MultiServerMCPClient({client_row.name: conn})
-    tools = await client.get_tools()
+    tools = await _get_tools(client, client_row.name)
     return [{"name": t.name, "description": (getattr(t, "description", "") or "").strip()} for t in tools]
 
 
