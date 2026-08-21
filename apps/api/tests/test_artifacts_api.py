@@ -77,6 +77,39 @@ async def test_download_404_for_missing():
         assert r.status_code == 404
 
 
+async def _owner_token_and_tenant() -> tuple[str, str]:
+    from ros.db import SessionLocal
+
+    async with SessionLocal() as s:
+        owner = await AuthService.register(s, email=_email(), password="ownerpass1")
+    return create_access_token(user_id=owner.id, tenant_id=owner.tenant_id, role=owner.role), owner.tenant_id
+
+
+async def test_download_ref_streams_in_scope_and_rejects_out_of_scope():
+    """The by-ref download (for artifact-plane files with no DB row) streams an in-scope ref and
+    403s a key outside the caller's tenant/project prefix — the cross-project guard."""
+    from ros.artifacts import get_artifact_store
+
+    tok, tenant = await _owner_token_and_tenant()
+    ref = await get_artifact_store().put(
+        tenant_id=tenant, project_id="p1", run_id="r1",
+        data=b"<h1>Mock</h1>", filename="mockup.html", content_type="text/html",
+    )
+    base = "/v1/projects/p1/artifacts/download-ref"
+    async with _client() as c:
+        r = await c.get(base, params={"bucket": ref.bucket, "key": ref.key,
+                                      "filename": "mockup.html", "content_type": "text/html"},
+                        headers=_auth(tok))
+        assert r.status_code == 200, r.text
+        assert r.content == b"<h1>Mock</h1>"
+        assert "attachment" in r.headers.get("content-disposition", "")
+
+        r2 = await c.get(base, params={"bucket": ref.bucket,
+                                       "key": "env/othertenant/otherproj/r1/sha/evil.html"},
+                         headers=_auth(tok))
+        assert r2.status_code == 403, r2.text
+
+
 async def test_viewer_can_read_but_not_write():
     tok = await _token("viewer")
     base = "/v1/projects/p1/artifacts"

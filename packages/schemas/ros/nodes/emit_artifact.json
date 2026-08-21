@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ros/nodes/emit_artifact",
+  "type": "object",
+  "properties": {
+    "source_key": {
+      "type": "string",
+      "description": "State key to read the content from. Blank = the last message's text (e.g. the HTML an upstream agent/llm node produced). A bytes value is stored verbatim; a dict/list is serialized to JSON.",
+      "x-ui": { "widget": "text" }
+    },
+    "filename": {
+      "type": "string",
+      "description": "Artifact filename, e.g. 'mockup.html'. The extension drives the default content type. Blank = 'artifact.txt'.",
+      "x-ui": { "widget": "text" }
+    },
+    "content_type": {
+      "type": "string",
+      "description": "MIME type for the file. Blank = inferred from the filename extension (e.g. .html -> text/html), else text/plain."
+    },
+    "unwrap_code_fence": {
+      "type": "boolean",
+      "default": true,
+      "description": "If the content is a single fenced code block (```html ... ```), store just the inner code. On by default since models often wrap generated HTML/code in a fence."
+    },
+    "preview": {
+      "type": "boolean",
+      "default": true,
+      "description": "For HTML artifacts, also render the result live in the console as an interactive, sandboxed inline preview. Off = store the file only, no preview."
+    }
+  },
+  "additionalProperties": false,
+  "$comment": "ports: in:[any], out:[any] (writes the default `artifacts` channel)"
+}

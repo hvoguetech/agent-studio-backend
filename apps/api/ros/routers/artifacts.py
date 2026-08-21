@@ -97,6 +97,38 @@ async def list_artifacts(
     return list(rows)
 
 
+@router.get("/download-ref", dependencies=[Depends(require_permission("artifact:read"))])
+async def download_artifact_ref(
+    project_id: str,
+    bucket: str,
+    key: str,
+    filename: str | None = None,
+    content_type: str | None = None,
+    tenant_id: str = Depends(current_tenant_id),
+):
+    """Download an artifact by its (bucket, key) ref — for files the artifact plane produced (e.g. the
+    emit_artifact node), which have no `Artifact` DB row so the by-id route can't serve them.
+
+    Scoping: the ref must resolve INSIDE this tenant/project's prefix (`resolver.resolve`), so a caller
+    can't fetch another project's objects by guessing keys. Streams through the API (no s3 redirect) so
+    the authenticated download stays same-origin — fine for typical artifacts (HTML mocks, logs, diffs)."""
+    store = get_artifact_store()
+    scope = store.resolver.resolve(tenant_id, project_id)
+    if bucket != scope.bucket or not key.startswith(f"{scope.prefix}/"):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "artifact ref is not in this project's scope")
+    ref = ArtifactRef(bucket=bucket, key=key, sha256="", size=0,
+                      content_type=content_type or "application/octet-stream", filename=filename)
+    try:
+        data = await store.get(ref)
+    except (ObjectStoreError, FileNotFoundError, OSError) as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "artifact not found") from e
+    return Response(
+        content=data,
+        media_type=ref.content_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename or "artifact"}"'},
+    )
+
+
 @router.get("/{artifact_id}/download", dependencies=[Depends(require_permission("artifact:read"))])
 async def download_artifact(
     project_id: str,

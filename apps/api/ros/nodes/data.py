@@ -1,4 +1,4 @@
-"""Data / integration nodes: transform, human_input, webhook_out, emit_event.
+"""Data / integration nodes: transform, human_input, webhook_out, emit_event, emit_artifact.
 
 Convention: data nodes read from an optional `input_key` (else the whole state)
 and write to `output_key` (which MUST be a declared state field, else LangGraph
@@ -11,10 +11,13 @@ plumbing for auth'd tools; retrieval needs the Chroma store.)
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 import jmespath
 
+from ros.artifacts.state import emit as _emit_artifact
+from ros.artifacts.state import run_scope
 from ros.auth_providers.templates import render_value
 from ros.engine.context import CompileContext
 from ros.engine.registry import NodeSpec, Port, register
@@ -217,6 +220,136 @@ def emit_event_factory(cfg: dict, ctx: CompileContext):
     return _node
 
 
+def _last_message_text(state: dict) -> str:
+    """Text of the last message on the `messages` channel — the usual upstream generator output
+    (e.g. the HTML an agent/llm node just produced). Handles str content and text-block lists,
+    and both LangChain message objects and plain dicts."""
+    for msg in reversed(state.get("messages") or []):
+        content = getattr(msg, "content", None)
+        if content is None and isinstance(msg, dict):
+            content = msg.get("content")
+        if isinstance(content, str) and content:
+            return content
+        if isinstance(content, list):
+            parts = [b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"]
+            text = "\n".join(p for p in parts if p)
+            if text:
+                return text
+    return ""
+
+
+# A single fenced code block: ```lang\n…\n``` spanning the whole string. LLMs routinely wrap
+# generated HTML/code in a fence, which we don't want inside the stored file.
+_FENCE_RE = re.compile(r"^\s*```[^\n]*\n(.*?)\n?```\s*$", re.DOTALL)
+
+
+def _unwrap_fence(text: str) -> str:
+    """Return the inner code if `text` is a single fenced block, else `text` unchanged."""
+    m = _FENCE_RE.match(text or "")
+    return m.group(1) if m else text
+
+
+_CONTENT_TYPES = {
+    "html": "text/html", "htm": "text/html", "css": "text/css", "js": "text/javascript",
+    "mjs": "text/javascript", "json": "application/json", "svg": "image/svg+xml",
+    "md": "text/markdown", "txt": "text/plain", "csv": "text/csv", "xml": "application/xml",
+}
+
+
+def _content_type_for(filename: str, explicit: str | None) -> str:
+    """Explicit content type wins; otherwise infer from the filename extension (default text/plain)."""
+    if explicit:
+        return explicit
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    return _CONTENT_TYPES.get(ext, "text/plain")
+
+
+def _stringify(val: Any) -> str:
+    """Coerce a non-string source value to text: pretty JSON for dict/list, else str()."""
+    if isinstance(val, (dict, list)):
+        import json
+        try:
+            return json.dumps(val, indent=2, default=str)
+        except (TypeError, ValueError):
+            return str(val)
+    return str(val)
+
+
+def _emit_artifact_frame(entry: dict) -> None:
+    """Emit an `artifact` stream frame (the produced file's ref + metadata) so the console can offer
+    a download for it — artifact-plane files have no `Artifact` DB row, so this is how the UI learns
+    about them. No-op when there's no active stream (e.g. ainvoke / non-streaming run)."""
+    try:
+        from langgraph.config import get_stream_writer
+
+        get_stream_writer()({"channel": "artifact", "payload": entry})
+    except Exception:  # noqa: BLE001 - no active stream writer / streaming unavailable
+        pass
+
+
+def _emit_html_preview(node_id: str | None, filename: str, html: str) -> None:
+    """Emit a `component` stream frame carrying the raw HTML so the console renders it live in a
+    SANDBOXED iframe — the same surface user-authored components use (sandbox=allow-scripts, no
+    same-origin), which makes a generated mock UI interactive (clickable, JS runs) without letting
+    it reach the host. No-op when there's no active stream (e.g. ainvoke / non-streaming run)."""
+    try:
+        from langgraph.config import get_stream_writer
+
+        get_stream_writer()({
+            "channel": "component",
+            "payload": {
+                "component_id": node_id or "mock_ui",
+                "instance_id": f"{node_id or 'mock'}:preview",
+                "name": filename,
+                "html": html,          # rendered verbatim as the iframe document (raw=True)
+                "raw": True,
+                "props": {},
+            },
+        })
+    except Exception:  # noqa: BLE001 - no active stream writer / streaming unavailable
+        pass
+
+
+def emit_artifact_factory(cfg: dict, ctx: CompileContext, node_id: str | None = None):
+    """Write text (HTML, code, JSON, …) from state to a durable file artifact on the `artifacts`
+    channel — the piece that lets a workflow END with a downloadable file (e.g. a generated mock
+    UI's mockup.html). Bytes go to the artifact store (S3 in prod, local in dev); a tiny ref rides
+    state so downstream nodes can consume it and the console can offer a presigned download.
+
+    For HTML with `preview` on, it ALSO emits a live component frame so the console renders the mock
+    interactively inline (sandboxed) — the artifact is the durable deliverable, the frame the preview."""
+    source_key = (cfg.get("source_key") or "").strip()
+    filename = (cfg.get("filename") or "artifact.txt").strip()
+    explicit_ct = (cfg.get("content_type") or "").strip() or None
+    unwrap = cfg.get("unwrap_code_fence", True)
+    preview = cfg.get("preview", True)
+
+    async def _node(state: dict, config=None) -> dict:
+        val = state.get(source_key) if source_key else None
+        text: str | None = None
+        if isinstance(val, (bytes, bytearray)):
+            data = bytes(val)  # raw bytes source: store verbatim, no text handling
+        else:
+            if source_key:
+                text = val if isinstance(val, str) else (_last_message_text(state) if val is None else _stringify(val))
+            else:
+                text = _last_message_text(state)
+            if unwrap:
+                text = _unwrap_fence(text)
+            data = (text or "").encode("utf-8")
+        content_type = _content_type_for(filename, explicit_ct)
+        entry = await _emit_artifact(
+            tenant_id=ctx.tenant_id, project_id=ctx.project_id, run_id=run_scope(config),
+            data=data, filename=filename, content_type=content_type, produced_by=node_id,
+        )
+        _emit_artifact_frame(entry)  # download chip in the console (any file type)
+        if preview and content_type == "text/html":
+            _emit_html_preview(node_id, filename, text if text is not None else data.decode("utf-8", "replace"))
+        return {"artifacts": [entry]}
+
+    return _node
+
+
 _io_any = ([Port(id="in", io_type="any", direction="in")], [Port(id="out", io_type="any", direction="out")])
 
 register(NodeSpec(
@@ -258,4 +391,11 @@ register(NodeSpec(
     input_ports=_io_any[0], output_ports=_io_any[1],
     factory=emit_event_factory, category="integrations", label="Emit Event", description="Push custom SSE frame",
     summarize=lambda c: [f"channel · {c.get('channel', '')}"],
+))
+register(NodeSpec(
+    type="emit_artifact", schema_id="ros/nodes/emit_artifact",
+    input_ports=_io_any[0], output_ports=_io_any[1],
+    factory=emit_artifact_factory, category="integrations", label="Emit Artifact",
+    description="Write text/HTML from state to a downloadable file artifact",
+    summarize=lambda c: [c.get("filename", "artifact.txt"), c.get("content_type") or "auto type"],
 ))
