@@ -862,9 +862,8 @@ class RunService:
                         session, tenant_id=tenant_id, project_id=run.project_id, agent_id=run.agent_id,
                         checkpointer=self.checkpointer, store=self.store,
                         end_user=(thread.meta or {}).get("end_user"),
-                        run_context=run_context,
+                        run_context=run_context, workflow_id=wf.id,
                     )
-                    ctx.workflow_id = wf.id  # lets nodes (e.g. claude_code) key state on the workflow
                     display_token = set_tool_display_names(ctx.tool_display_names)
                     try:
                         graph = compile_workflow(wf.executable, ctx)
@@ -1054,7 +1053,7 @@ class RunService:
                         session, tenant_id=tenant_id, project_id=run.project_id, agent_id=run.agent_id,
                         checkpointer=checkpointer, store=self.store,
                         end_user=(thread.meta or {}).get("end_user"),
-                        run_context=run_context,
+                        run_context=run_context, workflow_id=wf.id,
                     )
                     graph = compile_workflow(wf.executable, ctx)
                     # Drive with the custom stream (not ainvoke) so `component` frames emitted by
@@ -1165,7 +1164,7 @@ class RunService:
                         session, tenant_id=tenant_id, project_id=run.project_id, agent_id=run.agent_id,
                         checkpointer=self.checkpointer, store=self.store,
                         end_user=(thread.meta or {}).get("end_user"),
-                        run_context=run_context,
+                        run_context=run_context, workflow_id=wf.id,
                     )
                     graph = compile_workflow(wf.executable, ctx)
                     value = await _expand_hitl_decisions(graph, config, value)
@@ -1248,6 +1247,7 @@ class RunService:
                         session, tenant_id=tenant_id, project_id=run.project_id, agent_id=run.agent_id,
                         checkpointer=checkpointer, store=self.store,
                         end_user=(thread.meta or {}).get("end_user"), run_context=run_context,
+                        workflow_id=wf.id,
                     )
                     graph = compile_workflow(wf.executable, ctx)
                     snapshot = await graph.aget_state(config)
@@ -1307,6 +1307,7 @@ class RunService:
                 session, tenant_id=tenant_id, project_id=run.project_id, agent_id=run.agent_id,
                 checkpointer=checkpointer, store=self.store,
                 end_user=(thread.meta or {}).get("end_user"), run_context=run_context,
+                workflow_id=wf.id,
             )
             graph = compile_workflow(wf.executable, ctx)
             snapshot = await graph.aget_state(config)
@@ -1696,6 +1697,7 @@ class RunService:
                     session, tenant_id=tenant_id, project_id=run.project_id, agent_id=run.agent_id,
                     checkpointer=self.checkpointer, store=self.store,
                     end_user=(thread.meta or {}).get("end_user"), run_context=None,
+                    workflow_id=wf.id,
                 )
                 graph = compile_workflow(wf.executable, ctx)
                 config = {

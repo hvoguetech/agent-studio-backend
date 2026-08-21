@@ -44,6 +44,7 @@ def _tool_cfg(t: Tool) -> dict:
 async def build_compile_context(
     session, *, tenant_id: str, project_id: str, checkpointer=None, store=None,
     end_user: dict | None = None, run_context: dict | None = None, agent_id: str | None = None,
+    workflow_id: str | None = None,
 ) -> CompileContext:
     # Scope the project load by tenant too (audit H4): callers pass the CALLER's tenant_id, so a
     # cross-tenant project_id resolves to None here (empty config) instead of loading another
@@ -98,6 +99,10 @@ async def build_compile_context(
         project_default_mw=default_mw,
     )
     ctx.provider_credentials = resolved_keys
+    # Lets nodes (e.g. claude_code) key state on the workflow — its stable per-node workspace is
+    # <base>/<workflow_id>/<node_id>. Set here (single choke point) so every run/resume path that
+    # goes through build_compile_context gets it, not just the ones that remembered to set it.
+    ctx.workflow_id = workflow_id
     ctx.model_aliases = pconfig.get("model_aliases") or {}
     # Project-wide default tools/toolsets granted to every agent node (parallel to default_middleware).
     ctx.project_default_tools = pconfig.get("default_tools") or []
