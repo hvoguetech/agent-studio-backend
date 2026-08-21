@@ -42,6 +42,10 @@ class CompileContext:
     # MCP server id -> list of native LangChain tools (the server's enabled tools),
     # pre-loaded by the runtime assembler so the sync agent factory can attach them.
     mcp_tools_by_client: dict[str, list] = field(default_factory=dict)
+    # MCP servers resolved to Claude Agent SDK `mcp_servers` config (keyed by mcp_client id ->
+    # {"name", "server"}), for the claude_code node whose CLI subprocess connects to the server
+    # itself. Separate from `mcp_tools_by_client` (in-process langchain tools for agent nodes).
+    mcp_server_configs: dict[str, dict] = field(default_factory=dict)
     # Materialized UI components (component_id -> widget StructuredTool); attached to an
     # agent via config["components"], the same way tools are (Feature 2 - generative UI).
     component_registry: dict[str, Any] = field(default_factory=dict)

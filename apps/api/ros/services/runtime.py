@@ -202,9 +202,10 @@ async def build_compile_context(
     # Pre-load enabled MCP servers' tools (one connect per server) so agent nodes can
     # attach them - the agent factory is sync, but MCP discovery is async.
     from ros.models import McpClient
-    from ros.tools.mcp import server_tools
+    from ros.tools.mcp import sdk_server_config, server_tools
 
     mcp_by_client: dict[str, list] = {}
+    mcp_configs: dict[str, dict] = {}
     mcp_rows = (
         await session.execute(
             select(McpClient).where(
@@ -219,7 +220,15 @@ async def build_compile_context(
             mcp_by_client[m.id] = await server_tools(m, tenant_id, project_id)
         except Exception as e:  # noqa: BLE001 - an unreachable server must not break the run
             log.warning("MCP server %s unavailable, skipping its tools: %s", m.name, e)
+        # Also resolve the SDK-shaped config for the claude_code node's CLI (no connect here; the
+        # subprocess connects itself). Independent of server_tools so a bad connection still yields
+        # a config a claude_code node could use, and a config-resolve failure doesn't drop the tools.
+        try:
+            mcp_configs[m.id] = {"name": m.name, "server": await sdk_server_config(m, tenant_id, project_id)}
+        except Exception as e:  # noqa: BLE001 - unusable config just means claude_code can't use it
+            log.warning("MCP server %s config unavailable for claude_code: %s", m.name, e)
     ctx.mcp_tools_by_client = mcp_by_client
+    ctx.mcp_server_configs = mcp_configs
 
     # Saved agent presets, so an agent node with `agent_ref` mirrors the live preset.
     agent_rows = (
@@ -324,6 +333,7 @@ def build_compile_context_from_manifest(
     ctx.tool_display_names = display_names
 
     ctx.mcp_tools_by_client = {}  # runtime-side MCP connect is a follow-up
+    ctx.mcp_server_configs = {}  # ditto for the claude_code node's SDK mcp_servers on the VM path
     ctx.agent_presets = manifest.get("agent_presets") or {}
     # Skills ride the manifest as plain rows (no DB on the VM), so a deep_agent node mounts the
     # same library there as on master.

@@ -94,6 +94,128 @@ async def test_result_message_maps_to_ai_message(monkeypatch, tmp_path):
     assert capture["options"]["cwd"] == str(tmp_path)
 
 
+async def test_sdk_options_carry_budget_effort_thinking_fallback(monkeypatch, tmp_path):
+    capture: dict = {}
+    _install_fake_sdk(monkeypatch, capture=capture)
+    ctx = CompileContext(tenant_id="t", project_id="p", provider_credentials={"anthropic": "sk"})
+    node = _factory()({
+        "workspace": str(tmp_path), "fallback_model": "claude-haiku-4-5",
+        "max_budget_usd": 2.5, "effort": "high",
+        "thinking": "enabled", "thinking_budget_tokens": 12000,
+    }, ctx)
+    await node({"messages": [HumanMessage("hi")]})
+    opts = capture["options"]
+    assert opts["fallback_model"] == "claude-haiku-4-5"
+    assert opts["max_budget_usd"] == 2.5
+    assert opts["effort"] == "high"
+    assert opts["thinking"] == {"type": "enabled", "budget_tokens": 12000}
+
+
+async def test_thinking_variants_map_to_sdk_config(monkeypatch, tmp_path):
+    # adaptive/disabled map to bare configs; enabled defaults the budget when the UI omits it.
+    for mode, expected in [("adaptive", {"type": "adaptive"}), ("disabled", {"type": "disabled"}),
+                           ("enabled", {"type": "enabled", "budget_tokens": 8000})]:
+        capture: dict = {}
+        _install_fake_sdk(monkeypatch, capture=capture)
+        ctx = CompileContext(tenant_id="t", project_id="p", provider_credentials={"anthropic": "sk"})
+        node = _factory()({"workspace": str(tmp_path), "thinking": mode}, ctx)
+        await node({"messages": [HumanMessage("hi")]})
+        assert capture["options"]["thinking"] == expected
+
+
+async def test_new_options_omitted_when_unset(monkeypatch, tmp_path):
+    # Unset optional fields must not appear in options — they'd override the SDK's own defaults.
+    capture: dict = {}
+    _install_fake_sdk(monkeypatch, capture=capture)
+    ctx = CompileContext(tenant_id="t", project_id="p", provider_credentials={"anthropic": "sk"})
+    node = _factory()({"workspace": str(tmp_path)}, ctx)
+    await node({"messages": [HumanMessage("hi")]})
+    opts = capture["options"]
+    for k in ("fallback_model", "max_budget_usd", "effort", "thinking"):
+        assert k not in opts
+
+
+def test_new_config_fields_validate():
+    res = validate_workflow({
+        "id": "w", "version": 1,
+        "state": {"messages": {"type": "list[message]", "reducer": "add_messages"}},
+        "entry_node": "start",
+        "nodes": [
+            {"id": "start", "type": "start", "config": {}},
+            {"id": "cc", "type": "claude_code", "config": {
+                "fallback_model": "claude-haiku-4-5", "max_budget_usd": 5, "effort": "xhigh",
+                "thinking": "enabled", "thinking_budget_tokens": 10000,
+                "repo_url": "https://github.com/acme/repo.git",
+                "mcp_servers": ["mcp-client-id-1", "mcp-client-id-2"],
+            }},
+            {"id": "end", "type": "end", "config": {}},
+        ],
+        "edges": [{"source": "start", "target": "cc"}, {"source": "cc", "target": "end"}],
+    })
+    assert res.valid, res.errors
+
+
+def test_bad_effort_rejected():
+    res = validate_workflow({
+        "id": "w", "version": 1,
+        "state": {"messages": {"type": "list[message]", "reducer": "add_messages"}},
+        "entry_node": "start",
+        "nodes": [
+            {"id": "start", "type": "start", "config": {}},
+            {"id": "cc", "type": "claude_code", "config": {"effort": "turbo"}},
+            {"id": "end", "type": "end", "config": {}},
+        ],
+        "edges": [{"source": "start", "target": "cc"}, {"source": "cc", "target": "end"}],
+    })
+    assert not res.valid
+
+
+def test_mcp_config_translation_shapes():
+    # ROS adapter conn dict (transport=…) -> SDK mcp_servers config (type=…).
+    from ros.tools.mcp import _to_sdk_mcp_config
+
+    assert _to_sdk_mcp_config({"url": "https://x", "transport": "streamable_http", "headers": {"A": "b"}}) == {
+        "type": "http", "url": "https://x", "headers": {"A": "b"}}
+    assert _to_sdk_mcp_config({"url": "https://x", "transport": "sse"}) == {"type": "sse", "url": "https://x"}
+    assert _to_sdk_mcp_config({"command": "srv", "args": ["--flag"], "transport": "stdio"}) == {
+        "type": "stdio", "command": "srv", "args": ["--flag"]}
+
+
+async def test_mcp_servers_resolved_and_keyed_by_name(monkeypatch, tmp_path):
+    capture: dict = {}
+    _install_fake_sdk(monkeypatch, capture=capture)
+    ctx = CompileContext(tenant_id="t", project_id="p", provider_credentials={"anthropic": "sk"})
+    ctx.mcp_server_configs = {
+        "cid1": {"name": "github", "server": {"type": "http", "url": "https://mcp.example/gh"}},
+        "cid2": {"name": "slack", "server": {"type": "sse", "url": "https://mcp.example/slack"}},
+    }
+    node = _factory()({"workspace": str(tmp_path), "mcp_servers": ["cid1"]}, ctx)
+    await node({"messages": [HumanMessage("hi")]})
+    # Only the selected id, keyed by human name (the CLI prefixes tools as mcp__github__*).
+    assert capture["options"]["mcp_servers"] == {"github": {"type": "http", "url": "https://mcp.example/gh"}}
+
+
+async def test_mcp_servers_omitted_when_none_selected(monkeypatch, tmp_path):
+    capture: dict = {}
+    _install_fake_sdk(monkeypatch, capture=capture)
+    ctx = CompileContext(tenant_id="t", project_id="p", provider_credentials={"anthropic": "sk"})
+    ctx.mcp_server_configs = {"cid1": {"name": "github", "server": {"type": "http", "url": "u"}}}
+    node = _factory()({"workspace": str(tmp_path)}, ctx)  # node selects none
+    await node({"messages": [HumanMessage("hi")]})
+    assert "mcp_servers" not in capture["options"]
+
+
+async def test_mcp_unresolved_id_skipped(monkeypatch, tmp_path):
+    # An id the runtime couldn't resolve (server unavailable/disabled) is skipped, not errored.
+    capture: dict = {}
+    _install_fake_sdk(monkeypatch, capture=capture)
+    ctx = CompileContext(tenant_id="t", project_id="p", provider_credentials={"anthropic": "sk"})
+    ctx.mcp_server_configs = {"cid1": {"name": "github", "server": {"type": "http", "url": "u"}}}
+    node = _factory()({"workspace": str(tmp_path), "mcp_servers": ["cid1", "missing"]}, ctx)
+    await node({"messages": [HumanMessage("hi")]})
+    assert capture["options"]["mcp_servers"] == {"github": {"type": "http", "url": "u"}}
+
+
 async def test_governed_key_scoped_to_subprocess_env(monkeypatch, tmp_path):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     capture: dict = {}

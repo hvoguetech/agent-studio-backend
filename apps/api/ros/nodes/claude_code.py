@@ -201,7 +201,7 @@ async def _checkout_repo(config: dict, ctx: CompileContext, cwd: str) -> None:
         )
 
 
-def _sdk_options(config: dict, cwd: str, stderr_sink, env: dict[str, str]):
+def _sdk_options(config: dict, cwd: str, stderr_sink, env: dict[str, str], mcp_servers: dict[str, dict]):
     """Build ClaudeAgentOptions from node config. Imported lazily so the core never needs the SDK
     unless a workflow actually uses this node.
 
@@ -229,6 +229,24 @@ def _sdk_options(config: dict, cwd: str, stderr_sink, env: dict[str, str]):
     if config.get("model"):
         # Bare Anthropic model id (e.g. "claude-sonnet-4-5"), NOT the "provider:model" ROS form.
         kwargs["model"] = config["model"]
+    if config.get("fallback_model"):
+        # Secondary model tried if the primary errors mid-run.
+        kwargs["fallback_model"] = config["fallback_model"]
+    if config.get("max_budget_usd") is not None:
+        # Hard USD cost cap on the whole loop; the SDK aborts when accrued cost crosses it. Parallel
+        # to max_turns and the node-level tenant_budget hard-cap — a cost ceiling, not a turn ceiling.
+        kwargs["max_budget_usd"] = float(config["max_budget_usd"])
+    if config.get("effort"):
+        # Reasoning-effort control: "low" | "medium" | "high" | "xhigh" | "max".
+        kwargs["effort"] = config["effort"]
+    thinking = (config.get("thinking") or "").strip()
+    if thinking == "adaptive":
+        kwargs["thinking"] = {"type": "adaptive"}
+    elif thinking == "disabled":
+        kwargs["thinking"] = {"type": "disabled"}
+    elif thinking == "enabled":
+        # budget_tokens is required for the enabled variant; default when the UI leaves it blank.
+        kwargs["thinking"] = {"type": "enabled", "budget_tokens": int(config.get("thinking_budget_tokens") or 8000)}
     if config.get("allowed_tools") is not None:
         kwargs["allowed_tools"] = list(config["allowed_tools"])
     if config.get("disallowed_tools") is not None:
@@ -236,6 +254,9 @@ def _sdk_options(config: dict, cwd: str, stderr_sink, env: dict[str, str]):
     if config.get("setting_sources") is not None:
         # Whether the CLI loads user/project/local settings & CLAUDE.md. Default: none (hermetic).
         kwargs["setting_sources"] = list(config["setting_sources"])
+    if mcp_servers:
+        # SDK mcp_servers: name -> server config. The CLI subprocess connects to these itself.
+        kwargs["mcp_servers"] = mcp_servers
     return ClaudeAgentOptions(**kwargs)
 
 
@@ -248,6 +269,24 @@ def _inject_anthropic_key(ctx: CompileContext) -> dict[str, str]:
     creds = getattr(ctx, "provider_credentials", None) or {}
     key = creds.get("anthropic")
     return {"ANTHROPIC_API_KEY": key} if key else {}
+
+
+def _resolve_mcp_servers(config: dict, ctx: CompileContext) -> dict[str, dict]:
+    """Build the SDK `mcp_servers` mapping from the node's selected mcp_client ids.
+
+    The runtime assembler pre-resolved each project MCP server to an SDK-shaped config (creds +
+    SSRF/stdio gating applied) into `ctx.mcp_server_configs` (keyed by client id -> {name, server}).
+    Here we pick only the ids the node opted into (config.mcp_servers) and key them by human name for
+    the CLI. Ids the ctx couldn't resolve (unavailable / disabled) are skipped, not errored. This is
+    the CLI subprocess's own connect — it does NOT touch the in-process tools agent nodes use."""
+    ids = config.get("mcp_servers") or []
+    resolved = getattr(ctx, "mcp_server_configs", None) or {}
+    out: dict[str, dict] = {}
+    for cid in ids:
+        entry = resolved.get(cid)
+        if entry and entry.get("server"):
+            out[str(entry.get("name") or cid)] = entry["server"]
+    return out
 
 
 def _join_stderr(stderr_lines: list[str]) -> str:
@@ -317,6 +356,7 @@ def _wrap_sdk_error(exc: Exception, stderr_lines: list[str]) -> Exception:
 
 def claude_code_factory(config: dict, ctx: CompileContext, node_id: str | None = None):
     key_env = _inject_anthropic_key(ctx)
+    mcp_servers = _resolve_mcp_servers(config, ctx)
     workflow_id = getattr(ctx, "workflow_id", None)
 
     async def _node(state: dict) -> dict:
@@ -353,7 +393,7 @@ def claude_code_factory(config: dict, ctx: CompileContext, node_id: str | None =
 
         # Scope the governed key to this subprocess via options.env — never mutate the shared process
         # env, which would race across concurrent runs on the same event loop.
-        options = _sdk_options(config, cwd, _stderr_sink, key_env)
+        options = _sdk_options(config, cwd, _stderr_sink, key_env, mcp_servers)
         try:
             async for message in query(prompt=prompt, options=options):
                 kind = type(message).__name__
@@ -396,6 +436,9 @@ def _summary(config: dict) -> list[str]:
     if repo:
         ref = (config.get("repo_ref") or "").strip()
         lines.append(f"repo: {repo}" + (f"@{ref}" if ref else ""))
+    n_mcp = len(config.get("mcp_servers") or [])
+    if n_mcp:
+        lines.append(f"MCP {n_mcp}")
     return lines
 
 

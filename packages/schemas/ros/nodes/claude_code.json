@@ -8,6 +8,11 @@
       "description": "Bare Anthropic model id for the Claude Agent SDK (e.g. 'claude-sonnet-4-5'). NOT the 'provider:model' ROS form. Blank = the CLI's default.",
       "x-ui": { "widget": "text" }
     },
+    "fallback_model": {
+      "type": "string",
+      "description": "Bare Anthropic model id tried if the primary model errors mid-run. Blank = no fallback.",
+      "x-ui": { "widget": "text" }
+    },
     "system_prompt": {
       "type": "string",
       "description": "Extra system prompt appended to Claude Code's own agent prompt.",
@@ -45,6 +50,26 @@
       "default": 40,
       "description": "Hard cap on the agent-loop turns so a run can't loop forever."
     },
+    "max_budget_usd": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Hard USD cost cap on the whole agent loop; the SDK aborts the run when accrued cost crosses it. Belt-and-suspenders alongside max_turns and the node-level tenant_budget. Blank = uncapped."
+    },
+    "effort": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "xhigh", "max"],
+      "description": "Reasoning-effort control for the model. Blank = the SDK default."
+    },
+    "thinking": {
+      "type": "string",
+      "enum": ["adaptive", "enabled", "disabled"],
+      "description": "Extended-thinking mode. 'adaptive' lets the model decide; 'enabled' forces a fixed budget (see thinking_budget_tokens); 'disabled' turns it off. Blank = the SDK default."
+    },
+    "thinking_budget_tokens": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Thinking token budget used only when thinking = 'enabled'. Blank defaults to 8000."
+    },
     "allowed_tools": {
       "type": "array",
       "items": { "type": "string" },
@@ -54,6 +79,12 @@
       "type": "array",
       "items": { "type": "string" },
       "description": "Deny-list of tool names to withhold from the agent."
+    },
+    "mcp_servers": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Registered MCP servers (by id) the CLI subprocess connects to; each server's tools become agent-callable (as mcp__<server>__<tool>). Manage servers in Build → External MCP.",
+      "x-ui": { "widget": "chips", "refType": "mcp_client" }
     },
     "setting_sources": {
       "type": "array",

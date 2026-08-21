@@ -111,6 +111,33 @@ async def _connection_for(client_row: McpClient, tenant_id: str, project_id: str
     return conn
 
 
+def _to_sdk_mcp_config(conn: dict) -> dict:
+    """Translate a langchain-mcp-adapters connection dict (from `_connection_for`) into the Claude
+    Agent SDK's `mcp_servers` config shape. The SDK keys the transport under `type`
+    ("http"/"sse"/"stdio") where the adapters use `transport` ("streamable_http"/"sse"/"stdio")."""
+    transport = conn.get("transport")
+    if transport in ("http", "streamable_http"):
+        cfg: dict[str, Any] = {"type": "http", "url": conn.get("url")}
+    elif transport == "sse":
+        cfg = {"type": "sse", "url": conn.get("url")}
+    elif transport == "stdio":
+        cfg = {"type": "stdio", "command": conn.get("command"), "args": conn.get("args") or []}
+    else:
+        raise McpUnavailable(f"unsupported MCP transport {transport!r}")
+    if conn.get("headers"):
+        cfg["headers"] = conn["headers"]
+    return cfg
+
+
+async def sdk_server_config(client_row: McpClient, tenant_id: str, project_id: str) -> dict:
+    """Resolve a McpClient row to a Claude Agent SDK `mcp_servers` config entry — creds resolved and
+    the SSRF / stdio gating enforced via `_connection_for`. Used by the claude_code node, whose CLI
+    subprocess connects to the server itself (separate from the in-process langchain-mcp tools that
+    agent/deep_agent nodes attach via `server_tools`)."""
+    conn = await _connection_for(client_row, tenant_id, project_id)
+    return _to_sdk_mcp_config(conn)
+
+
 async def _client_and_tools(client_row: McpClient, tenant_id: str, project_id: str):
     MultiServerMCPClient = _require_adapters()
     now = time.monotonic()
