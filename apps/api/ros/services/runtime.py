@@ -269,6 +269,7 @@ def build_compile_context_from_manifest(
         default_model=manifest.get("default_model") or settings.default_model,
         project_default_mw=manifest.get("default_middleware") or [],
     )
+    ctx.workflow_id = manifest.get("workflow_id")  # lets nodes (e.g. claude_code) key state on the workflow
     ctx.provider_credentials = manifest.get("provider_credentials") or {}
     ctx.model_aliases = manifest.get("model_aliases") or {}
     # Project-wide default tools/toolsets, carried in the manifest so the VM path grants them too.

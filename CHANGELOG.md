@@ -7,6 +7,17 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- **Claude Code stable per-node workspace + optional repo checkout** (new): the `claude_code` node
+  now operates in a stable, per-node directory `<base>/<workflow_id>/<node_id>` (base from
+  `ROS_CLAUDE_CODE_WORKSPACE`, which the VM runtime now sets to `/workspace`) instead of an ad-hoc
+  compile-time temp dir, so a run's files land predictably and a stateful agent keeps its working
+  tree across runs. A node can also name a **GitHub repo** (`repo_url` + branch/tag `repo_ref`) that
+  is **clone-once** checked out into that workspace before the agent runs; private repos authenticate
+  via a stored secret reference (`repo_secret_ref` → `secret://…`, resolved at run time, spliced as an
+  `x-access-token`, and scrubbed from any error) — never a plaintext token in the workflow. The
+  compiler passes the node id to opt-in factories and `CompileContext` carries `workflow_id`; the
+  runtime manifest now also resolves secret refs found in node configs (so the isolating sandbox can
+  clone a private repo). See `docs/specs/claude-code-workspace-and-repo.md`.
 - **Claude Code runs under a root sandbox VM** (fix): on the per-run Freestyle/E2B VM the runtime
   executes as root, where the `claude` CLI rejects `--dangerously-skip-permissions` (used by the
   autonomous `acceptEdits`/`bypassPermissions` modes) with *"cannot be used with root/sudo

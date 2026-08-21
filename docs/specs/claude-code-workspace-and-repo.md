@@ -1,6 +1,6 @@
 # Spec: Claude Code node — stable per-node workspace + optional GitHub repo checkout
 
-Status: **DRAFT for review** · Owner: platform · Scope: `claude_code` node + minimal engine plumbing
+Status: **IMPLEMENTED** · Owner: platform · Scope: `claude_code` node + minimal engine plumbing
 
 ## Problem
 

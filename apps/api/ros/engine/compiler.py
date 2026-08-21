@@ -85,6 +85,27 @@ def _subagent_spec_from_node(node: dict) -> dict:
     return spec
 
 
+def _build_node(spec, config: dict, ctx: CompileContext, node_id: str):
+    """Call a node factory, passing `node_id` only to factories that opt in.
+
+    Back-compatible: a factory that declares a `node_id` parameter (keyword or a third positional)
+    receives it; every existing 2-arg factory is called unchanged. Lets a node like claude_code key
+    its workspace on the node id without forcing a signature change across all node factories."""
+    import inspect
+
+    factory = spec.factory
+    try:
+        params = inspect.signature(factory).parameters
+    except (TypeError, ValueError):  # pragma: no cover - builtins without signatures
+        params = {}
+    accepts_node_id = "node_id" in params or any(
+        p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+    )
+    if accepts_node_id:
+        return factory(config, ctx, node_id=node_id)
+    return factory(config, ctx)
+
+
 def compile_workflow(definition: dict, ctx: CompileContext):
     """Compile an executable workflow definition into a runnable LangGraph graph."""
     state_schema = build_state_typeddict(definition.get("state", {}))
@@ -149,7 +170,7 @@ def compile_workflow(definition: dict, ctx: CompileContext):
         if n["id"] in subagent_child_ids:
             continue
         spec = get_spec(n["type"])
-        node_fn = spec.factory(n.get("config", {}) or {}, ctx)
+        node_fn = _build_node(spec, n.get("config", {}) or {}, ctx, n["id"])
         # Output-schema enforcement (WS8 a): validate the node's PRIMARY output value against its
         # declared output_schema. Applied INNERMOST so a strict violation surfaces before the
         # error_handling wrapper, letting on_error=continue/default absorb it. Skipped (with a

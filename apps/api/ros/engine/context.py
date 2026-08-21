@@ -18,6 +18,11 @@ class CompileContext:
     tenant_id: str
     project_id: str
 
+    # The workflow being compiled (wf.id). Optional so an ad-hoc/unit-test compile without a
+    # persisted workflow still works. Used e.g. by the claude_code node to compose a stable per-node
+    # workspace directory <base>/<workflow_id>/<node_id>.
+    workflow_id: str | None = None
+
     # LangGraph durability + long-term memory.
     checkpointer: Any = None
     store: Any = None

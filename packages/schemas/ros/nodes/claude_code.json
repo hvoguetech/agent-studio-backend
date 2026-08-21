@@ -15,7 +15,22 @@
     },
     "workspace": {
       "type": "string",
-      "description": "Absolute working directory the agent operates in (reads/edits/shell). Blank = ROS_CLAUDE_CODE_WORKSPACE env, else a per-run temp dir."
+      "description": "Absolute working directory the agent operates in (reads/edits/shell). Blank = a stable per-node dir <base>/<workflow_id>/<node_id> (base from ROS_CLAUDE_CODE_WORKSPACE, else a temp root)."
+    },
+    "repo_url": {
+      "type": "string",
+      "description": "Optional https git URL to check out into the workspace before the agent runs (clone-once: skipped if the workspace already has a .git). Blank = no checkout.",
+      "x-ui": { "widget": "text" }
+    },
+    "repo_ref": {
+      "type": "string",
+      "description": "Branch or tag to check out for repo_url (shallow clone). Blank = the repo's default branch. Arbitrary commit SHAs are not supported.",
+      "x-ui": { "widget": "text" }
+    },
+    "repo_secret_ref": {
+      "type": "string",
+      "description": "For a private repo_url: a secret reference (secret://proj/<name>) to a GitHub token, resolved at run time and used as an x-access-token. Never a raw token. Blank = public clone.",
+      "x-ui": { "widget": "secret" }
     },
     "permission_mode": {
       "type": "string",

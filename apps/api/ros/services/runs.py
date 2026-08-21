@@ -864,6 +864,7 @@ class RunService:
                         end_user=(thread.meta or {}).get("end_user"),
                         run_context=run_context,
                     )
+                    ctx.workflow_id = wf.id  # lets nodes (e.g. claude_code) key state on the workflow
                     display_token = set_tool_display_names(ctx.tool_display_names)
                     try:
                         graph = compile_workflow(wf.executable, ctx)

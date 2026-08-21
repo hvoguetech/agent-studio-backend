@@ -93,34 +93,132 @@ def _text_of(msg: BaseMessage) -> str:
     return str(content or "")
 
 
-def _resolve_cwd(config: dict) -> str:
-    """Working directory Claude Code operates in.
+def _resolve_cwd(config: dict, workflow_id: str | None, node_id: str | None) -> str:
+    """Working directory Claude Code operates in — a STABLE per-node dir so a run's files land
+    predictably and a stateful repo agent keeps its working tree across runs.
 
-    Precedence: explicit config.workspace > ROS_CLAUDE_CODE_WORKSPACE env (set by the runtime on a
-    VM) > a per-node temp dir. Created if missing. Kept absolute so the SDK/CLI never resolves it
-    against an ambiguous cwd."""
-    workspace = (config.get("workspace") or "").strip() or os.environ.get("ROS_CLAUDE_CODE_WORKSPACE", "")
-    if not workspace:
-        import tempfile
+    Precedence:
+      1. explicit `config.workspace` (absolute path) — honored verbatim (power-user pin).
+      2. `<base>/<workflow_id>/<node_id>` — the stable per-node dir. `base` is ROS_CLAUDE_CODE_WORKSPACE
+         (the per-VM root the runtime sets) else a temp root. `workflow_id` is required because node
+         ids are only unique WITHIN a workflow.
+      3. a per-node temp dir — fallback when the ids aren't available (ad-hoc/unit-test compile).
+    Created if missing; kept absolute so the SDK/CLI never resolves it against an ambiguous cwd."""
+    import tempfile
 
+    explicit = (config.get("workspace") or "").strip()
+    if explicit:
+        workspace = explicit
+    elif workflow_id and node_id:
+        base = os.environ.get("ROS_CLAUDE_CODE_WORKSPACE", "").strip() or os.path.join(
+            tempfile.gettempdir(), "ros-claude-code"
+        )
+        workspace = os.path.join(base, workflow_id, node_id)
+    else:
         workspace = tempfile.mkdtemp(prefix="ros-claude-code-")
     workspace = os.path.abspath(workspace)
     os.makedirs(workspace, exist_ok=True)
     return workspace
 
 
-def _sdk_options(config: dict, cwd: str, stderr_sink):
+def _scrub_token(text: str) -> str:
+    """Redact any `x-access-token:<tok>@` embedded in a string (clone URL) so a token never leaks
+    into an error message / log."""
+    import re
+
+    return re.sub(r"x-access-token:[^@\s]+@", "x-access-token:***@", text or "")
+
+
+async def _resolve_repo_token(ctx: CompileContext, secret_ref: str) -> str | None:
+    """Resolve a `secret://proj/<name>` ref to a GitHub token, scoped to the run's tenant/project.
+    Returns None if unresolved (caller falls back to a public clone / fails the clone). The value may
+    be a bare string or a structured secret; we take a string or its common token-bearing fields.
+
+    Uses the ctx auth_resolver's secret store so BOTH runtimes work: the trusted VM's store reads
+    master DB, while the isolating sandbox's InMemorySecretStore reads the manifest's run-scoped
+    secrets (master must include `repo_secret_ref` there, else this fails closed -> None). Falls back
+    to a direct SecretStore when no resolver is attached (e.g. master/dev)."""
+    if not secret_ref:
+        return None
+    from ros.secrets.store import SecretNotFound, SecretStore
+
+    resolver = getattr(ctx, "auth_resolver", None)
+    store = getattr(resolver, "secrets", None) or SecretStore()
+    try:
+        val = await store.read_ref(tenant_id=ctx.tenant_id, project_id=ctx.project_id, ref=secret_ref)
+    except SecretNotFound:
+        return None
+    if isinstance(val, str):
+        return val or None
+    if isinstance(val, dict):
+        for k in ("token", "value", "password", "pat"):
+            if isinstance(val.get(k), str) and val[k]:
+                return val[k]
+    return None
+
+
+def _clone_url(repo_url: str, token: str | None) -> str:
+    """Splice a token into an https git URL as an x-access-token (GitHub's app-token scheme), so the
+    token is never stored in the repo URL at rest — mirrors the image bake's clone step."""
+    if token and repo_url.startswith("https://"):
+        return "https://x-access-token:" + token + "@" + repo_url[len("https://"):]
+    return repo_url
+
+
+async def _checkout_repo(config: dict, ctx: CompileContext, cwd: str) -> None:
+    """Clone-once: if `repo_url` is set and the workspace has no `.git`, shallow-clone the configured
+    branch/tag into it. If the repo is already present, leave the working tree AS-IS (the agent keeps
+    prior-run changes). Runs the `git` subprocess in the VM; token (if any) is used only to build the
+    clone URL and is scrubbed from any error surfaced."""
+    repo_url = (config.get("repo_url") or "").strip()
+    if not repo_url:
+        return
+    if os.path.isdir(os.path.join(cwd, ".git")):
+        return  # clone-once: keep the existing working tree
+
+    token = await _resolve_repo_token(ctx, (config.get("repo_secret_ref") or "").strip())
+    url = _clone_url(repo_url, token)
+    ref = (config.get("repo_ref") or "").strip()
+
+    import asyncio
+
+    args = ["git", "clone", "--depth", "1"]
+    if ref:
+        args += ["--branch", ref]  # branch or tag (v1; no arbitrary SHA)
+    args += [url, cwd]
+
+    proc = await asyncio.create_subprocess_exec(
+        *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        detail = _scrub_token((stderr or b"").decode("utf-8", "replace").strip())
+        raise ClaudeCodeError(
+            f"claude_code repo checkout failed for {repo_url}"
+            + (f" (ref {ref})" if ref else "")
+            + (f": {detail}" if detail else ""),
+            stderr=detail or None,
+        )
+
+
+def _sdk_options(config: dict, cwd: str, stderr_sink, env: dict[str, str]):
     """Build ClaudeAgentOptions from node config. Imported lazily so the core never needs the SDK
     unless a workflow actually uses this node.
 
     `stderr_sink` is the SDK's per-line stderr callback: the real subprocess error detail (the CLI's
     "Check stderr output for details" placeholder refers to *this* stream) only reaches us here, so
-    we always wire it up to buffer stderr for error reporting."""
+    we always wire it up to buffer stderr for error reporting.
+
+    `env` is the per-call subprocess env overlay (e.g. the governed ANTHROPIC_API_KEY). The SDK merges
+    it over os.environ for the spawned CLI only (transport: {**os.environ, ..., **options.env}), so the
+    key is scoped to this one subprocess — never mutated onto the shared process env, which would race
+    across concurrent runs on the same event loop."""
     from claude_agent_sdk import ClaudeAgentOptions
 
     kwargs: dict[str, Any] = {
         "cwd": cwd,
         "stderr": stderr_sink,
+        "env": env,
         # "default" | "acceptEdits" | "bypassPermissions" | "plan". Autonomous runs (no human at the
         # keyboard) need edits to not block on a prompt; default to acceptEdits, overridable.
         "permission_mode": config.get("permission_mode", "acceptEdits"),
@@ -145,7 +243,8 @@ def _inject_anthropic_key(ctx: CompileContext) -> dict[str, str]:
     """The SDK's CLI subprocess reads ANTHROPIC_API_KEY from its env. Surface the project's governed
     key (resolved by the runtime assembler into ctx.provider_credentials, same path as resolve_model)
     so the node uses the same credential as every other Anthropic call — never a hard-coded key.
-    Returns the env overlay to pass to the subprocess (the SDK forwards os.environ + this)."""
+    Returns the env overlay passed to ClaudeAgentOptions.env; the SDK merges it over os.environ for the
+    spawned CLI only (never onto the shared process env)."""
     creds = getattr(ctx, "provider_credentials", None) or {}
     key = creds.get("anthropic")
     return {"ANTHROPIC_API_KEY": key} if key else {}
@@ -216,9 +315,9 @@ def _wrap_sdk_error(exc: Exception, stderr_lines: list[str]) -> Exception:
     )
 
 
-def claude_code_factory(config: dict, ctx: CompileContext):
-    cwd = _resolve_cwd(config)
+def claude_code_factory(config: dict, ctx: CompileContext, node_id: str | None = None):
     key_env = _inject_anthropic_key(ctx)
+    workflow_id = getattr(ctx, "workflow_id", None)
 
     async def _node(state: dict) -> dict:
         try:
@@ -233,12 +332,10 @@ def claude_code_factory(config: dict, ctx: CompileContext):
         if not prompt:
             return {"messages": [AIMessage(content="(claude_code: no input prompt)")]}
 
-        # The SDK spawns the `claude` CLI inheriting os.environ; overlay the governed key for the
-        # duration of this call without leaking it into the long-lived process env.
-        restore: dict[str, str | None] = {}
-        for k, v in key_env.items():
-            restore[k] = os.environ.get(k)
-            os.environ[k] = v
+        # Resolve the workspace per invocation (so it keys on workflow+node and picks up the runtime's
+        # ROS_CLAUDE_CODE_WORKSPACE without a recompile), then clone-once any configured repo into it.
+        cwd = _resolve_cwd(config, workflow_id, node_id)
+        await _checkout_repo(config, ctx, cwd)
 
         text_chunks: list[str] = []
         usage: dict[str, Any] = {}
@@ -254,7 +351,9 @@ def claude_code_factory(config: dict, ctx: CompileContext):
             stderr_bytes += len(line)
             stderr_lines.append(line)
 
-        options = _sdk_options(config, cwd, _stderr_sink)
+        # Scope the governed key to this subprocess via options.env — never mutate the shared process
+        # env, which would race across concurrent runs on the same event loop.
+        options = _sdk_options(config, cwd, _stderr_sink, key_env)
         try:
             async for message in query(prompt=prompt, options=options):
                 kind = type(message).__name__
@@ -276,12 +375,6 @@ def claude_code_factory(config: dict, ctx: CompileContext):
                         raise _result_error(message, stderr_lines)
         except Exception as e:  # noqa: BLE001 - normalize SDK/CLI failures to a detailed ClaudeCodeError
             raise _wrap_sdk_error(e, stderr_lines) from e
-        finally:
-            for k, prev in restore.items():
-                if prev is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = prev
 
         final = "\n".join(c for c in text_chunks if c).strip() or "(claude_code: empty result)"
         out = AIMessage(
@@ -297,8 +390,13 @@ def claude_code_factory(config: dict, ctx: CompileContext):
 def _summary(config: dict) -> list[str]:
     model = config.get("model") or "claude (default)"
     mode = config.get("permission_mode", "acceptEdits")
-    ws = config.get("workspace") or "runtime workspace"
-    return [str(model), f"{mode} · {ws}"]
+    ws = config.get("workspace") or "per-node workspace"
+    lines = [str(model), f"{mode} · {ws}"]
+    repo = (config.get("repo_url") or "").strip()
+    if repo:
+        ref = (config.get("repo_ref") or "").strip()
+        lines.append(f"repo: {repo}" + (f"@{ref}" if ref else ""))
+    return lines
 
 
 register(

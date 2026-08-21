@@ -15,6 +15,13 @@ import sys
 
 
 def main(argv: list[str] | None = None) -> int:
+    # VM-only: give the claude_code node a stable workspace root so it composes a deterministic
+    # per-node dir <base>/<workflow_id>/<node_id> (else it falls back to an ad-hoc temp dir). Set once
+    # for the whole runtime process; never overridden if the environment already provides it.
+    import os as _os
+
+    _os.environ.setdefault("ROS_CLAUDE_CODE_WORKSPACE", "/workspace")
+
     parser = argparse.ArgumentParser(prog="python -m ros.runtime", description="Standalone ros runtime.")
     sub = parser.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="Compile + run a workflow from a RunManifest.")

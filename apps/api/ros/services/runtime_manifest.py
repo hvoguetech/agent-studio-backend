@@ -156,6 +156,11 @@ class RuntimeManifestService:
             _collect_secret_refs(preset, refs)
         for c in components:
             _collect_secret_refs(c, refs)
+        # Node configs can also carry direct secret refs (e.g. claude_code.repo_secret_ref), which the
+        # DB-less runtime must resolve at run time — collect them from the workflow executable too.
+        for _n in (wf.executable or {}).get("nodes", []) or []:
+            if isinstance(_n, dict):
+                _collect_secret_refs(_n.get("config") or {}, refs)
         secrets: dict[str, object] = {}
         for ref in refs:
             try:
