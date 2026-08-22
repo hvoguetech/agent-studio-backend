@@ -37,8 +37,15 @@ export const config = {
   northflankApiToken: opt("NORTHFLANK_API_TOKEN"),
   // Project the run Services are created in. Northflank services live under a project.
   northflankProjectId: opt("NORTHFLANK_PROJECT_ID"),
-  // The prebuilt run image (built by a Northflank Build service from the run.Dockerfile toolchain):
-  // an internal Northflank registry ref or external image the run Service deploys.
+  // How the run Service gets its image. Two modes:
+  //  - INTERNAL build (recommended): the image built by a Northflank build/combined service in this
+  //    project. Set NORTHFLANK_BUILD_SERVICE_ID (the build service id, e.g. "build-service") + branch
+  //    + SHA ("latest" = most recent build). The run Service deploys deployment.internal.
+  //  - EXTERNAL image: a container-registry image path. Set NORTHFLANK_RUN_IMAGE. Used when
+  //    NORTHFLANK_BUILD_SERVICE_ID is unset.
+  northflankBuildServiceId: opt("NORTHFLANK_BUILD_SERVICE_ID"),
+  northflankBuildBranch: opt("NORTHFLANK_BUILD_BRANCH", "main"),
+  northflankBuildSha: opt("NORTHFLANK_BUILD_SHA", "latest"),
   northflankImage: opt("NORTHFLANK_RUN_IMAGE"),
   // Region/plan for the run Service (provider defaults apply when unset).
   northflankRegion: opt("NORTHFLANK_REGION"),

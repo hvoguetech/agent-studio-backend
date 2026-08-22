@@ -42,7 +42,8 @@ function ok(res: any, what: string): any {
 }
 
 export function northflankEnabled(): boolean {
-  return Boolean(config.northflankApiToken && config.northflankProjectId && config.northflankImage);
+  const hasImage = Boolean(config.northflankBuildServiceId || config.northflankImage);
+  return Boolean(config.northflankApiToken && config.northflankProjectId && hasImage);
 }
 
 /** In-memory stickyKey -> serviceId (one warm run Service per agent). Best-effort, like the Freestyle
@@ -68,8 +69,23 @@ async function serviceAlive(serviceId: string): Promise<boolean> {
   }
 }
 
-/** Create a warm deployment Service from the prebuilt run image (long-running so we can exec into it).
- * The container idles (the run itself is exec'd in), so we run a trivial keep-alive command. */
+/** The image source for a run Service: the internal Northflank build (preferred) or an external
+ * registry image. The run image is built by a Northflank build/combined service in this project, so
+ * the reference is an internal build ({id, branch, buildSHA}) — NOT an external image string. */
+function imageSource(): { internal: any } | { external: any } {
+  if (config.northflankBuildServiceId) {
+    return { internal: {
+      id: config.northflankBuildServiceId,
+      branch: config.northflankBuildBranch,
+      buildSHA: config.northflankBuildSha,   // "latest" = most recent build
+    } };
+  }
+  if (config.northflankImage) return { external: { imagePath: config.northflankImage } };
+  throw new Error("northflank: set NORTHFLANK_BUILD_SERVICE_ID (internal build) or NORTHFLANK_RUN_IMAGE (external)");
+}
+
+/** Create a warm deployment Service from the run image (long-running so we can exec into it). The
+ * container idles (the run itself is exec'd in), so we override the command with a keep-alive. */
 async function createService(input: RunInput): Promise<string> {
   const c = await nf();
   const name = serviceName(input);
@@ -80,8 +96,7 @@ async function createService(input: RunInput): Promise<string> {
       billing: { deploymentPlan: config.northflankPlan },
       deployment: {
         instances: 1,
-        // Prebuilt image (internal Northflank registry ref or external image).
-        external: { imagePath: config.northflankImage },
+        ...imageSource(),
         // Keep the container alive so we can exec the run into it; the runtime is exec'd, not the CMD.
         docker: { configType: "customCommand", customCommand: "sh -c 'sleep infinity'" },
       },

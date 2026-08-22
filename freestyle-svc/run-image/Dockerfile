@@ -49,13 +49,24 @@ RUN set -eux; \
     python3 -m pip install -q -e "/opt/ros-src/apps/api[providers,vectors,knowledge,mcp,workers,postgres,storage,claude_code]"
 
 # Claude Code CLI on PATH — prefer the SDK's bundled linux binary (deterministic), else npm (parallels
-# TOOLCHAIN_STEPS step 5).
+# TOOLCHAIN_STEPS step 5). Guard against linking the target onto itself (the previous version resolved
+# CLAUDE_BIN to /usr/local/bin/claude and created a self-referential symlink), and verify at build time.
 RUN set -eux; \
+    LINK=/usr/local/bin/claude; \
     CLAUDE_BIN="$(find / -type f -path '*claude_agent_sdk*/_bundled/claude' 2>/dev/null | head -n1)"; \
-    if [ -z "$CLAUDE_BIN" ]; then npm install -g @anthropic-ai/claude-code >/dev/null 2>&1 || true; \
-      CLAUDE_BIN="$(command -v claude 2>/dev/null || find / -type f -path '*claude-code-linux-*/claude' 2>/dev/null | head -n1)"; fi; \
-    if [ -n "$CLAUDE_BIN" ]; then chmod +x "$CLAUDE_BIN" || true; ln -sf "$CLAUDE_BIN" /usr/local/bin/claude; \
-    else echo "CLAUDE CLI NOT FOUND" >&2; fi
+    if [ -z "$CLAUDE_BIN" ]; then \
+      npm install -g @anthropic-ai/claude-code >/dev/null 2>&1 || true; \
+      CLAUDE_BIN="$(find / -type f -path '*claude-code-linux-*/claude' 2>/dev/null | head -n1)"; \
+      if [ -z "$CLAUDE_BIN" ]; then \
+        RESOLVED="$(command -v claude 2>/dev/null || true)"; \
+        [ -n "$RESOLVED" ] && [ "$RESOLVED" != "$LINK" ] && CLAUDE_BIN="$(readlink -f "$RESOLVED")"; \
+      fi; \
+    fi; \
+    if [ -n "$CLAUDE_BIN" ] && [ -f "$CLAUDE_BIN" ] && [ "$CLAUDE_BIN" != "$LINK" ]; then \
+      chmod +x "$CLAUDE_BIN" || true; ln -sf "$CLAUDE_BIN" "$LINK"; \
+    fi; \
+    # Fail the build if claude isn't actually runnable (no broken/self symlink slipping through).
+    claude --version >/dev/null 2>&1 || { echo "CLAUDE CLI NOT RUNNABLE (bin=$CLAUDE_BIN)" >&2; exit 1; }
 
 # Bake shared JSON schemas where config.py expects them (parallels TOOLCHAIN_STEPS step 6).
 RUN mkdir -p /app && cp -r /opt/ros-src/packages /app/packages || true
