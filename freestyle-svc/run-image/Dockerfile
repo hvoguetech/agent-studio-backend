@@ -25,6 +25,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       postgresql-client sqlite3 python3-venv python3-pip nodejs npm \
     && rm -rf /var/lib/apt/lists/*
 
+# The dispatched run command is `python -m ros.runtime drive` (bare `python`), but debian-slim only
+# ships `python3`. Symlink `python` -> `python3` so the dispatched command resolves (Freestyle's VM
+# has this alias; the slim image doesn't).
+RUN ln -sf "$(command -v python3)" /usr/local/bin/python
+
 # Java — Amazon Corretto 21.0.2 (pinned), arch-aware, to /opt/jdk (parallels TOOLCHAIN_STEPS step 2).
 RUN set -eux; CORRETTO_VER=21.0.2.13.1; \
     ARCH="$(uname -m)"; case "$ARCH" in x86_64) CJ=x64;; aarch64|arm64) CJ=aarch64;; *) CJ=x64;; esac; \
