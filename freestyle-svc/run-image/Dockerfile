@@ -5,8 +5,10 @@
 # claude_agent tool/node. Build this with a Northflank Build service; deploy the resulting image as
 # the run Service (NORTHFLANK_RUN_IMAGE) that northflank.ts execs the runtime into.
 #
-# Baked runtimes: Python 3, Node 20+, Java (Amazon Corretto 21.0.2, pinned), gcc/build-essential,
-# git, ripgrep, psql, sqlite3 — matching the Freestyle image so runs behave identically.
+# Baked runtimes: Python 3, Node.js 22 (NodeSource), Java (Amazon Corretto 21.0.2, pinned),
+# gcc/build-essential, git, ripgrep, psql, sqlite3 — matching the Freestyle image so runs behave
+# identically. The `claude` CLI is the official NATIVE binary (needs no Node); Node is kept for
+# Node-based MCP servers / tools a run may use.
 #
 # Build args (mirror the Freestyle bake's env):
 #   ROS_INSTALL_REPO_URL  plain https clone url (e.g. https://github.com/hvoguetech/agent-studio-backend.git)
@@ -17,12 +19,19 @@ FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
     JAVA_HOME=/opt/jdk \
-    PATH=/opt/jdk/bin:/usr/local/bin:/usr/bin:/bin
+    DISABLE_AUTOUPDATER=1 \
+    PATH=/root/.local/bin:/opt/jdk/bin:/usr/local/bin:/usr/bin:/bin
 
 # System deps (parallels TOOLCHAIN_STEPS step 1).
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential git curl ca-certificates gnupg jq ripgrep unzip \
-      postgresql-client sqlite3 python3-venv python3-pip nodejs npm \
+      postgresql-client sqlite3 python3-venv python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node.js 22 (NodeSource) — kept for Node-based MCP servers / tools a run may use. NOT used for the
+# `claude` CLI (that's the native binary below), so we do NOT npm-install claude here.
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # The dispatched run command is `python -m ros.runtime drive` (bare `python`), but debian-slim only
@@ -53,27 +62,13 @@ RUN set -eux; \
     git clone --depth 1 ${ROS_INSTALL_REF:+--branch "$ROS_INSTALL_REF"} "$CLONE_URL" /opt/ros-src; \
     python3 -m pip install -q -e "/opt/ros-src/apps/api[providers,vectors,knowledge,mcp,workers,postgres,storage,claude_code]"
 
-# Claude Code CLI on PATH — prefer the SDK's bundled linux binary (deterministic), else npm (mirrors
-# the Freestyle bake's TOOLCHAIN_STEPS claude step). The ONLY change vs. Freestyle is guarding against
-# linking the target onto itself: the prior version resolved CLAUDE_BIN via `command -v claude` to
-# /usr/local/bin/claude and then `ln -sf` made it point at itself (broken self-symlink). We never resolve
-# to $LINK and never link a path onto itself. Non-fatal if absent (do NOT gate the build — Freestyle
-# doesn't; a hard `claude --version || exit 1` gate previously failed the whole image build).
-RUN set -eux; \
-    LINK=/usr/local/bin/claude; \
-    CLAUDE_BIN="$(find / -type f -path '*claude_agent_sdk*/_bundled/claude' 2>/dev/null | head -n1)"; \
-    if [ -z "$CLAUDE_BIN" ]; then \
-      npm install -g @anthropic-ai/claude-code >/dev/null 2>&1 || true; \
-      CLAUDE_BIN="$(find / -type f -path '*claude-code-linux-*/claude' 2>/dev/null | head -n1)"; \
-      if [ -z "$CLAUDE_BIN" ]; then \
-        RESOLVED="$(command -v claude 2>/dev/null || true)"; \
-        [ -n "$RESOLVED" ] && [ "$RESOLVED" != "$LINK" ] && CLAUDE_BIN="$(readlink -f "$RESOLVED")"; \
-      fi; \
-    fi; \
-    if [ -n "$CLAUDE_BIN" ] && [ -f "$CLAUDE_BIN" ] && [ "$CLAUDE_BIN" != "$LINK" ]; then \
-      chmod +x "$CLAUDE_BIN" || true; ln -sf "$CLAUDE_BIN" "$LINK"; \
-    fi; \
-    claude --version >/dev/null 2>&1 && echo "claude OK" || echo "CLAUDE CLI NOT FOUND (non-fatal)"
+# Claude Code CLI — the official NATIVE binary (standalone; needs NO Node.js). The Claude Agent SDK
+# spawns `claude` from PATH; the installer drops it at /root/.local/bin/claude (on PATH above). Pinned
+# to the `stable` channel and with the auto-updater disabled (ENV DISABLE_AUTOUPDATER=1) so the baked
+# image never mutates itself at runtime. Gate the build on it — unlike the old npm/glob path, the
+# native installer is reliable, so a missing `claude` here is a real failure we WANT to catch.
+RUN curl -fsSL https://claude.ai/install.sh | bash -s stable \
+    && claude --version
 
 # Bake shared JSON schemas where config.py expects them (parallels TOOLCHAIN_STEPS step 6).
 RUN mkdir -p /app && cp -r /opt/ros-src/packages /app/packages || true
