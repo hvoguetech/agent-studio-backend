@@ -29,6 +29,18 @@ async function nf(): Promise<any> {
   return _client;
 }
 
+/** The JS client does NOT throw on HTTP errors by default — it returns them in `res.error`. Unwrap
+ * that so a billing/permission/validation failure (e.g. 409 "add a default payment method") surfaces
+ * loudly instead of showing up as a mysterious undefined id. Returns `res.data` on success. */
+function ok(res: any, what: string): any {
+  const err = res?.error;
+  if (err) {
+    const status = err.status ? `${err.status} ` : "";
+    throw new Error(`northflank ${what}: ${status}${err.message ?? "request failed"}`);
+  }
+  return res?.data;
+}
+
 export function northflankEnabled(): boolean {
   return Boolean(config.northflankApiToken && config.northflankProjectId && config.northflankImage);
 }
@@ -76,7 +88,9 @@ async function createService(input: RunInput): Promise<string> {
       ...(config.northflankRegion ? { region: config.northflankRegion } : {}),
     },
   });
-  const serviceId = res?.data?.id ?? res?.data?.service?.id ?? name;
+  const data = ok(res, "create service");
+  const serviceId = data?.id ?? data?.service?.id;
+  if (!serviceId) throw new Error("northflank create service: no service id in response");
   return serviceId;
 }
 
@@ -122,10 +136,11 @@ async function dispatchRun(input: RunInput): Promise<RunReceipt> {
   const script = `${envPrefix} ${detached} echo launched`;
 
   const c = await nf();
-  await c.exec.execServiceCommand(
+  const execRes: any = await c.exec.execServiceCommand(
     { projectId: config.northflankProjectId, serviceId },
     { command: script, shell: "sh -c" },
   );
+  ok(execRes, "exec run command");
 
   const rec = records.get(serviceId);
   if (rec) rec.lastRunId = input.runId;
@@ -141,7 +156,8 @@ async function teardownVm(serviceId: string): Promise<void> {
   records.delete(serviceId);
   for (const [k, v] of svcBySticky) if (v === serviceId) svcBySticky.delete(k);
   const c = await nf();
-  await c.delete.service({ parameters: { projectId: config.northflankProjectId, serviceId } });
+  const res: any = await c.delete.service({ parameters: { projectId: config.northflankProjectId, serviceId } });
+  ok(res, "delete service");
 }
 
 /** Shell single-quote escape (same as the Freestyle adapter). */
