@@ -1,20 +1,29 @@
 /**
- * ros-freestyle-svc HTTP API — the run-control service ROS's freestyle ExecutionBackend calls.
+ * ros run-control service — the HTTP API ROS's ExecutionBackend calls. Provider-agnostic: the
+ * EXECUTION_PROVIDER env selects the adapter (freestyle | northflank); the contract is identical.
  *
  * Endpoints (all but /healthz require `Authorization: Bearer <FREESTYLE_SERVICE_SECRET>`):
  *   GET    /healthz        → liveness
- *   POST   /run            → boot/reuse a VM and launch `python -m ros.runtime drive` on it; returns
- *                            { vm_id, runId, reused }. Matches freestyle_control.dispatch_run's body:
+ *   POST   /run            → boot/reuse an executor and launch `python -m ros.runtime drive` on it;
+ *                            returns { vm_id, runId, reused }. Matches dispatch_run's body:
  *                            { runId, tenantId, projectId, command, env, stickyKey?, warm? }.
  *   GET    /run/:vmId       → status { vm_id, alive, record }.
- *   DELETE /vm/:vmId        → EXPLICIT teardown (the only thing that destroys a VM — GAPS G2).
+ *   DELETE /vm/:vmId        → EXPLICIT teardown (the only thing that destroys an executor — GAPS G2).
  *
- * The VM runs until DELETE /vm/:vmId (persistent, no idle timeout by default).
+ * The executor runs until DELETE /vm/:vmId (persistent, no idle timeout by default).
  */
 import { timingSafeEqual } from "node:crypto";
 import Fastify from "fastify";
 import { config } from "./config.js";
-import { dispatchRun, runStatus, teardownVm, freestyleEnabled, type RunInput } from "./freestyle.js";
+import { freestyleProvider } from "./freestyle.js";
+import { northflankProvider } from "./northflank.js";
+import type { ExecutionProvider, RunInput } from "./provider.js";
+
+// Select the execution provider from config. Unknown value fails fast at boot.
+const provider: ExecutionProvider =
+  config.provider === "northflank" ? northflankProvider
+  : config.provider === "freestyle" ? freestyleProvider
+  : (() => { throw new Error(`unknown EXECUTION_PROVIDER: ${config.provider}`); })();
 
 const app = Fastify({ logger: true, bodyLimit: 4 * 1024 * 1024 });
 
@@ -34,16 +43,18 @@ app.addHook("onRequest", async (req, reply) => {
   }
 });
 
-app.get("/healthz", async () => ({ ok: true, freestyle: freestyleEnabled(), persistence: config.persistence }));
+app.get("/healthz", async () => ({
+  ok: true, provider: provider.name, enabled: provider.enabled(), persistence: config.persistence,
+}));
 
 app.post<{ Body: RunInput }>("/run", async (req, reply) => {
-  if (!freestyleEnabled()) return reply.code(503).send({ error: "freestyle not configured" });
+  if (!provider.enabled()) return reply.code(503).send({ error: `${provider.name} not configured` });
   const body = req.body;
   if (!body?.runId || !body?.command) {
     return reply.code(400).send({ error: "runId and command are required" });
   }
   try {
-    const receipt = await dispatchRun(body);
+    const receipt = await provider.dispatchRun(body);
     // ROS reads `vm_id` off the receipt (freestyle.py:_record_executor); include camelCase too.
     return reply.code(202).send({ vm_id: receipt.vmId, vmId: receipt.vmId, runId: receipt.runId, reused: receipt.reused });
   } catch (err) {
@@ -54,7 +65,7 @@ app.post<{ Body: RunInput }>("/run", async (req, reply) => {
 
 app.get<{ Params: { vmId: string } }>("/run/:vmId", async (req, reply) => {
   try {
-    const status = await runStatus(req.params.vmId);
+    const status = await provider.runStatus(req.params.vmId);
     return reply.send({ vm_id: status.vmId, alive: status.alive, record: status.record });
   } catch (err) {
     return reply.code(500).send({ error: (err as Error).message });
@@ -63,7 +74,7 @@ app.get<{ Params: { vmId: string } }>("/run/:vmId", async (req, reply) => {
 
 app.delete<{ Params: { vmId: string } }>("/vm/:vmId", async (req, reply) => {
   try {
-    await teardownVm(req.params.vmId);
+    await provider.teardownVm(req.params.vmId);
     return reply.send({ ok: true, vm_id: req.params.vmId });
   } catch (err) {
     req.log.error({ err }, "teardownVm failed");

@@ -16,6 +16,7 @@
 import { Freestyle } from "freestyle";
 import { VmPython } from "@freestyle-sh/with-python";
 import { config } from "./config.js";
+import type { ExecutionProvider, RunInput, RunReceipt, RunStatus } from "./provider.js";
 
 let client: Freestyle | null = null;
 function fs(): Freestyle {
@@ -34,17 +35,6 @@ const vmsBySticky = new Map<string, string>();
 /** vmId -> the last command/receipt, for GET /run/:id status. */
 export interface VmRecord { vmId: string; stickyKey?: string; lastRunId?: string; createdAt: string; }
 const records = new Map<string, VmRecord>();
-
-export interface RunInput {
-  runId: string;
-  tenantId: string;
-  projectId?: string | null;
-  command: string;
-  env?: Record<string, string>;
-  stickyKey?: string;
-  warm?: boolean;
-}
-export interface RunReceipt { vmId: string; runId: string; reused: boolean; }
 
 /** Is a VM still alive on Freestyle? A gone/deleted VM throws → not alive. */
 async function vmAlive(vmId: string): Promise<boolean> {
@@ -129,6 +119,15 @@ export async function teardownVm(vmId: string): Promise<void> {
   for (const [k, v] of vmsBySticky) if (v === vmId) vmsBySticky.delete(k);
   await fs().vms.delete({ vmId });
 }
+
+/** The Freestyle adapter as an ExecutionProvider (selected when config.provider === "freestyle"). */
+export const freestyleProvider: ExecutionProvider = {
+  name: "freestyle",
+  enabled: freestyleEnabled,
+  dispatchRun,
+  runStatus: runStatus as (vmId: string) => Promise<RunStatus>,
+  teardownVm,
+};
 
 // --- helpers ------------------------------------------------------------------------------------
 

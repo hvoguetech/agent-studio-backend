@@ -18,13 +18,33 @@ function opt(name: string, fallback = ""): string {
 }
 
 export const config = {
-  // The Freestyle API key lives ONLY here (control plane) — never injected into a run VM.
-  freestyleApiKey: req("FREESTYLE_API_KEY"),
+  // Which execution provider backs the endpoints: "freestyle" (default) | "northflank". The HTTP
+  // contract is identical; only the adapter differs. ROS's ExecutionBackend is unaware of this.
+  provider: opt("EXECUTION_PROVIDER", "freestyle") as "freestyle" | "northflank",
+
+  // The Freestyle API key lives ONLY here (control plane) — never injected into a run VM. Optional
+  // now: required only when provider=freestyle (validated by the Freestyle adapter's enabled()).
+  freestyleApiKey: opt("FREESTYLE_API_KEY"),
   // Shared secret ROS presents as `Authorization: Bearer <secret>`. Must equal ROS's
   // ROS_FREESTYLE_SERVICE_SECRET. The service runs private (no public domain); this defends against
   // anything reaching it on the private network without the secret.
   serviceSecret: req("FREESTYLE_SERVICE_SECRET"),
   port: Number(opt("PORT", "3000")),
+
+  // --- Northflank (used only when provider=northflank) -------------------------------------------
+  // API token (Team or Org scoped) the control plane uses to create/exec/delete services. Lives
+  // ONLY here — never injected into a run container. Required only for provider=northflank.
+  northflankApiToken: opt("NORTHFLANK_API_TOKEN"),
+  // Project the run Services are created in. Northflank services live under a project.
+  northflankProjectId: opt("NORTHFLANK_PROJECT_ID"),
+  // The prebuilt run image (built by a Northflank Build service from the run.Dockerfile toolchain):
+  // an internal Northflank registry ref or external image the run Service deploys.
+  northflankImage: opt("NORTHFLANK_RUN_IMAGE"),
+  // Region/plan for the run Service (provider defaults apply when unset).
+  northflankRegion: opt("NORTHFLANK_REGION"),
+  northflankPlan: opt("NORTHFLANK_PLAN", "nf-compute-20"),
+  // Idle TTL (seconds) after which a warm run Service may be reaped. 0 = keep until explicit delete.
+  northflankIdleTtlSeconds: Number(opt("NORTHFLANK_IDLE_TTL_SECONDS", "0")),
 
   // VM persistence at create time. "persistent" => runs until explicit teardown (the chosen policy);
   // "sticky" => suspend-on-idle/resume-on-access (NOT our policy, kept for later experiments);

@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@freestyle-sh/with-python": "^0.2.11",
+    "@northflank/js-client": "^0.10.1",
     "fastify": "^5.2.0",
     "freestyle": "^0.1.63"
   },

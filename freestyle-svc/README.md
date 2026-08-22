@@ -1,9 +1,24 @@
 # ros-freestyle-svc
 
-The **run-control service** ROS's `freestyle` execution backend dispatches to. It boots the ros
-runtime (`python -m ros.runtime drive`) on a **Freestyle VM** and returns a receipt; the VM drives the
-run against the shared Postgres + relay bus. See `apps/api/ros/execution/freestyle_control.py` (the
+The **run-control service** ROS's execution backend dispatches to. It boots the ros runtime
+(`python -m ros.runtime drive`) on an executor and returns a receipt; the executor drives the run
+against the shared Postgres + relay bus. See `apps/api/ros/execution/freestyle_control.py` (the
 client) and `forge/docs/standalone-runtime-split-spec.md` (the design).
+
+## Providers (EXECUTION_PROVIDER switch)
+
+The service is provider-agnostic — the **same** HTTP contract (`/run`, `/run/:id`, `DELETE /vm/:id`),
+selected by `EXECUTION_PROVIDER`:
+
+- **`freestyle`** (default) — a persistent **Freestyle microVM** per agent (stickyKey), driven via
+  `vm.exec`. Requires `FREESTYLE_API_KEY`. Image baked by `npm run build:image` (exec-time bake).
+- **`northflank`** — a warm **Northflank deployment Service** per agent (stickyKey), driven via
+  `exec.execServiceCommand`. Requires `NORTHFLANK_API_TOKEN`, `NORTHFLANK_PROJECT_ID`,
+  `NORTHFLANK_RUN_IMAGE`. Image built from `run-image/Dockerfile` by a Northflank Build service
+  (a reproducible Dockerfile equivalent of the Freestyle toolchain). `src/northflank.ts`.
+
+The receipt's `vm_id` is an opaque executor id (a Freestyle VM id or a Northflank service id); ROS
+treats it identically. `GET /healthz` reports the active `provider` + whether it's `enabled`.
 
 ## VM lifecycle policy (chosen)
 
