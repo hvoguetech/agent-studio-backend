@@ -363,6 +363,34 @@ def _last_ai_text(values: dict) -> str:
     return _last_message_text(values, ("ai", "assistant"))
 
 
+def _artifacts_result(project_id: str | None, values: dict | None) -> list[dict]:
+    """The run's produced files (the `artifacts` state channel) as client-facing dicts, each with a
+    scoped download_url (the by-ref endpoint). This is what lets an external UI bound to a workflow
+    fetch + render the final artifact (e.g. a generated mock UI's mockup.html) from a run result,
+    without streaming. Empty when the run produced no artifacts."""
+    from urllib.parse import urlencode
+
+    entries = (values or {}).get("artifacts") or []
+    if not isinstance(entries, list) or not project_id:
+        return []
+    out: list[dict] = []
+    for e in entries:
+        if not isinstance(e, dict) or not e.get("key"):
+            continue
+        q = urlencode({k: v for k, v in {
+            "bucket": e.get("bucket"), "key": e.get("key"),
+            "filename": e.get("filename"), "content_type": e.get("content_type"),
+        }.items() if v})
+        out.append({
+            "filename": e.get("filename"),
+            "content_type": e.get("content_type"),
+            "size": e.get("size"),
+            "produced_by": e.get("produced_by"),
+            "download_url": f"/v1/projects/{project_id}/artifacts/download-ref?{q}",
+        })
+    return out
+
+
 def _last_user_text(values: dict) -> str:
     """This turn's user message - the last human/user message. Reads `Run.input`, whose
     messages are plain dicts keyed by `role` (from the request body); also tolerates the
@@ -976,6 +1004,9 @@ class RunService:
                         done_data: dict[str, Any] = {
                             "status": run.status,
                             "answer": _last_ai_text(getattr(snapshot, "values", {}) or {}),
+                            # Produced files (with scoped download_urls) — the run's deliverable, not
+                            # operator telemetry, so surfaced on every path incl. embed.
+                            "artifacts": _artifacts_result(run.project_id, getattr(snapshot, "values", {}) or {}),
                         }
                         # Token counts, cost, run-step debug and node names are operator-only - never
                         # expose them to an anonymous embed end user (audit H5 / memory:
@@ -1116,6 +1147,7 @@ class RunService:
                     "interrupts": interrupts,
                     "answer": answer,
                     "components": components,
+                    "artifacts": _artifacts_result(run.project_id, getattr(snapshot, "values", {}) or {}),
                     "total_tokens": run.total_tokens, "total_cost_usd": run.total_cost_usd,
                 }
             except ConcurrencyLimitExceeded as e:

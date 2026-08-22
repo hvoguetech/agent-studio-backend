@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 
 import httpx
+import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 
 from ros.main import create_app
@@ -53,6 +54,79 @@ async def _project_with_configured_workflow(c: httpx.AsyncClient) -> tuple[dict,
     r = await c.patch(f"/v1/projects/{pid}", json={"config": {"api_workflow_id": wid}}, headers=h)
     assert r.status_code == 200, r.text
     return h, pid
+
+
+def test_artifacts_result_shape_and_filtering():
+    """The helper turns the artifacts state channel into client dicts with scoped download_urls,
+    skips non-entries, and no-ops without a project_id."""
+    from ros.services.runs import _artifacts_result
+
+    state = {"artifacts": [
+        {"bucket": "b", "key": "env/t/p/r/sha/mockup.html", "size": 12,
+         "content_type": "text/html", "filename": "mockup.html", "produced_by": "save"},
+        {"not": "an entry"},  # no key -> skipped
+    ]}
+    out = _artifacts_result("p1", state)
+    assert len(out) == 1
+    a = out[0]
+    assert a["filename"] == "mockup.html" and a["content_type"] == "text/html" and a["size"] == 12
+    assert a["download_url"].startswith("/v1/projects/p1/artifacts/download-ref?")
+    assert "key=env" in a["download_url"] and "filename=mockup.html" in a["download_url"]
+    assert _artifacts_result(None, state) == []      # no project scope
+    assert _artifacts_result("p1", {}) == []          # no artifacts
+
+
+_HTML = "<h1>Mock</h1>"
+_WF_ARTIFACT = {
+    "id": "wf_artifact", "version": 1,
+    "state": {"messages": {"type": "list[message]", "reducer": "add_messages"}},
+    "entry_node": "agent",
+    "nodes": [
+        {"id": "agent", "type": "agent", "config": {"flavor": "agent", "model": f"fake:{_HTML}", "tools": []}},
+        {"id": "save", "type": "emit_artifact", "config": {"filename": "mockup.html", "preview": True}},
+        {"id": "end", "type": "end", "config": {}},
+    ],
+    "edges": [{"source": "agent", "target": "save"}, {"source": "save", "target": "end"}],
+}
+
+
+@pytest.fixture
+def _local_store(tmp_path, monkeypatch):
+    from ros.artifacts import reset_artifact_store
+    from ros.config import settings
+
+    monkeypatch.setattr(settings, "artifact_store", "local")
+    monkeypatch.setattr(settings, "artifact_local_dir", str(tmp_path))
+    reset_artifact_store()
+    yield
+    reset_artifact_store()
+
+
+async def test_run_returns_artifacts_with_working_download(_local_store):
+    """End-to-end: an external caller POSTs /run, gets the final artifact in the result, and its
+    download_url actually serves the generated file — the primitive for binding a workflow to an
+    external UI that renders its output."""
+    async with _client() as c:
+        reg = (await c.post("/v1/auth/register", json={"email": _email(), "password": "supersecret1"})).json()
+        h = {"Authorization": f"Bearer {reg['access_token']}"}
+        pid = (await c.post("/v1/projects", json={"name": "Artifact Project"}, headers=h)).json()["id"]
+        wid = (await c.post(f"/v1/projects/{pid}/workflows",
+                            json={"name": "Mock", "executable": _WF_ARTIFACT}, headers=h)).json()["id"]
+        await c.patch(f"/v1/projects/{pid}", json={"config": {"api_workflow_id": wid}}, headers=h)
+
+        r = await c.post(f"/v1/projects/{pid}/run",
+                         json={"input": {"messages": [{"role": "user", "content": "make a mock"}]}, "stream": False},
+                         headers=h)
+        assert r.status_code == 200, r.text
+        arts = r.json().get("artifacts") or []
+        assert len(arts) == 1, r.json()
+        a = arts[0]
+        assert a["filename"] == "mockup.html" and a["content_type"] == "text/html"
+        assert a["download_url"].startswith(f"/v1/projects/{pid}/artifacts/download-ref?")
+
+        d = await c.get(a["download_url"], headers=h)
+        assert d.status_code == 200, d.text
+        assert b"<h1>Mock</h1>" in d.content        # the generated HTML, fetched back by ref
 
 
 async def test_run_non_stream_returns_answer_and_thread():
